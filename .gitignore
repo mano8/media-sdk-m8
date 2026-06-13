@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local agent guidance — kept on disk, excluded from the repo (and from Codacy)
+CLAUDE.md

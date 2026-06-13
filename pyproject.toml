@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "media-sdk-m8"
+version = "0.1.0"
+description = "Shared, settings-agnostic media primitives (object storage + job contracts) for m8 media services."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Eli Serra", email = "e.serra173@gmail.com" }]
+requires-python = ">=3.11"
+keywords = ["minio", "object-storage", "media", "microservices", "contracts"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
+
+dependencies = [
+    "minio>=7.2.0",
+    "pydantic>=2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.9.0", "mypy>=1.14.0", "bandit>=1.8.0",
+       "coverage>=7.0", "pytest-cov>=6.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["media_sdk_m8"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "C90", "D"]
+ignore = [
+    "E501",
+    "D100", "D104", "D105", "D107",
+    "D203", "D211", "D212", "D215",
+    "D301", "D401", "D403", "D404", "D415", "D416", "D417",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["media_sdk_m8"]
+
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+strict = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=media_sdk_m8 --cov-report=xml --cov-report=term-missing"
