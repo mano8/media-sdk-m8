@@ -6,6 +6,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-15
+
+### Added
+
+- `OutboxEventPayload` — the self-contained Pydantic v2 contract for outbound
+  webhook events (`event_id`, `event_type`, `object_id`, `payload`, `created_at`).
+  media-service-m8 writes one row per state change to its transactional outbox
+  and POSTs this HMAC-signed body to subscriber URLs; a subscriber needs only
+  this shape to verify and consume an event. Frozen and DB/framework-agnostic,
+  consistent with the existing job contracts.
+
 ## [0.2.0] - 2026-06-15
 
 ### Added
