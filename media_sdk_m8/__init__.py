@@ -6,6 +6,7 @@ by media-service-m8 (producer) and media-worker-m8 (consumer).
 """
 
 from media_sdk_m8.contracts import (
+    OutboxEventPayload,
     ScanJobPayload,
     VariantJobPayload,
     VariantSpec,
@@ -21,6 +22,7 @@ __all__ = [
     "DEFAULT_PRESIGNED_EXPIRE_SECONDS",
     "ObjectStorage",
     "ObjectStorageConfig",
+    "OutboxEventPayload",
     "ScanJobPayload",
     "VariantJobPayload",
     "VariantSpec",

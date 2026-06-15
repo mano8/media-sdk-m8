@@ -6,6 +6,7 @@ knowledge. media-service-m8 builds these payloads and enqueues them; the worker
 deserializes and acts on them — so the worker needs no preset/key awareness.
 """
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -50,3 +51,29 @@ class VariantJobPayload(BaseModel):
     source_bucket: str = Field(min_length=1)
     source_object_key: str = Field(min_length=1)
     specs: list[VariantSpec] = Field(min_length=1)
+
+
+class OutboxEventPayload(BaseModel):
+    """
+    A single outbound webhook event delivered to a subscriber URL.
+
+    media-service-m8 writes one row per state change to its transactional outbox
+    table, then its maintenance worker serializes the row into this model and
+    POSTs the JSON body — HMAC-signed with the subscription secret — to every
+    matching subscriber. The contract is self-contained: no database, framework,
+    or service knowledge, so a subscriber needs only this shape to verify and
+    consume an event.
+
+    ``event_type`` is a dotted name (e.g. ``object.ready``, ``object.deleted``,
+    ``scan.failed``, ``variant.ready``); ``object_id`` is the media object the
+    event concerns; ``payload`` carries event-specific detail; ``event_id`` is a
+    stable id a subscriber can dedupe on (delivery is at-least-once).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    event_id: UUID
+    event_type: str = Field(min_length=1)
+    object_id: UUID
+    payload: dict[str, Any]
+    created_at: datetime

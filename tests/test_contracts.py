@@ -1,11 +1,17 @@
 """Tests for media_sdk_m8.contracts job payloads."""
 
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
-from media_sdk_m8 import ScanJobPayload, VariantJobPayload, VariantSpec
+from media_sdk_m8 import (
+    OutboxEventPayload,
+    ScanJobPayload,
+    VariantJobPayload,
+    VariantSpec,
+)
 
 
 def test_scan_job_payload_round_trips():
@@ -90,3 +96,49 @@ def test_payloads_are_frozen():
     spec = _spec()
     with pytest.raises(ValidationError):
         spec.variant_name = "other"
+
+
+def _outbox_event() -> OutboxEventPayload:
+    return OutboxEventPayload(
+        event_id=uuid4(),
+        event_type="object.ready",
+        object_id=uuid4(),
+        payload={"status": "ready", "size_bytes": 1024},
+        created_at=datetime(2026, 6, 15, 12, 0, tzinfo=UTC),
+    )
+
+
+def test_outbox_event_payload_round_trips():
+    event = _outbox_event()
+    restored = OutboxEventPayload.model_validate_json(event.model_dump_json())
+    assert restored == event
+    assert restored.event_type == "object.ready"
+    assert restored.payload["size_bytes"] == 1024
+
+
+def test_outbox_event_payload_rejects_blank_event_type():
+    with pytest.raises(ValidationError):
+        OutboxEventPayload(
+            event_id=uuid4(),
+            event_type="",
+            object_id=uuid4(),
+            payload={},
+            created_at=datetime.now(UTC),
+        )
+
+
+def test_outbox_event_payload_rejects_bad_uuid():
+    with pytest.raises(ValidationError):
+        OutboxEventPayload(
+            event_id="not-a-uuid",
+            event_type="object.ready",
+            object_id=uuid4(),
+            payload={},
+            created_at=datetime.now(UTC),
+        )
+
+
+def test_outbox_event_payload_is_frozen():
+    event = _outbox_event()
+    with pytest.raises(ValidationError):
+        event.event_type = "object.deleted"
