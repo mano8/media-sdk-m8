@@ -40,8 +40,11 @@ storage.put_object(
 ```
 
 Methods: `stat_object`, `remove_object`, `get_object_head`, `get_object`,
-`put_object`, `set_object_content_type`, `copy_object`, `post_upload_url`,
-`presigned_post_object`, `presigned_get_object`.
+`list_object_keys`, `put_object`, `set_object_content_type`, `copy_object`,
+`post_upload_url`, `presigned_post_object`, `presigned_get_object`.
+
+`list_object_keys(*, bucket, prefix="")` recursively yields stored keys — the
+read primitive an orphan reconciler uses to find bytes that have no DB row.
 
 Presigned-URL expiry defaults to `config.presigned_expire_seconds` and can be
 overridden per call via `expires_seconds`.

@@ -93,6 +93,24 @@ def test_get_object_reads_full_content():
     assert result == b"full-bytes"
 
 
+def test_list_object_keys_yields_recursive_keys():
+    minio = MagicMock()
+    minio.list_objects.return_value = [
+        MagicMock(object_name="a/1.png"),
+        MagicMock(object_name="a/2.png"),
+    ]
+    keys = list(_storage(minio).list_object_keys(bucket="b", prefix="a/"))
+    minio.list_objects.assert_called_once_with("b", prefix="a/", recursive=True)
+    assert keys == ["a/1.png", "a/2.png"]
+
+
+def test_list_object_keys_defaults_to_empty_prefix():
+    minio = MagicMock()
+    minio.list_objects.return_value = []
+    assert list(_storage(minio).list_object_keys(bucket="b")) == []
+    minio.list_objects.assert_called_once_with("b", prefix="", recursive=True)
+
+
 def test_set_object_content_type_replaces_via_server_side_copy():
     from minio.commonconfig import REPLACE
 

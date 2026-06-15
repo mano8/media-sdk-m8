@@ -6,6 +6,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-15
+
+### Added
+
+- `ObjectStorage.list_object_keys(*, bucket, prefix="")` — recursively streams
+  every stored object key, the read primitive media-service-m8's orphan
+  reconciler (Phase 14) needs to detect bytes that have no DB row. Stays
+  DB-free and framework-agnostic.
+
+## [0.1.0] - 2026-06-13
+
 ### Added
 
 - Initial `media_sdk_m8` package — the shared, settings-agnostic media SDK

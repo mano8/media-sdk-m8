@@ -7,6 +7,7 @@ explicitly — the SDK never reads settings or env on its own.
 """
 
 import io
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -74,6 +75,18 @@ class ObjectStorage:
         finally:
             response.close()
             response.release_conn()
+
+    def list_object_keys(self, *, bucket: str, prefix: str = "") -> Iterator[str]:
+        """
+        Yield every object key in *bucket* (optionally under *prefix*).
+
+        Recursive listing of the storage keyspace — the read primitive an
+        orphan reconciler needs to find bytes that have no DB row (a key the
+        service never recorded). Streamed lazily so a large bucket is not
+        materialised in memory.
+        """
+        for obj in self.client.list_objects(bucket, prefix=prefix, recursive=True):
+            yield obj.object_name
 
     def put_object(
         self, *, bucket: str, object_key: str, data: bytes, content_type: str
