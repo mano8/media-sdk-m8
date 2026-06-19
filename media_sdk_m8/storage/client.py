@@ -15,6 +15,9 @@ from typing import Any
 #: Fallback lifetime (seconds) for presigned URLs when a caller omits one.
 DEFAULT_PRESIGNED_EXPIRE_SECONDS = 300
 
+#: Default chunk size (bytes) for :meth:`ObjectStorage.stream_object` — 1 MiB.
+DEFAULT_STREAM_CHUNK_SIZE = 1024 * 1024
+
 
 @dataclass(frozen=True)
 class ObjectStorageConfig:
@@ -72,6 +75,29 @@ class ObjectStorage:
         response = self.client.get_object(bucket, object_key)
         try:
             return response.read()
+        finally:
+            response.close()
+            response.release_conn()
+
+    def stream_object(
+        self,
+        *,
+        bucket: str,
+        object_key: str,
+        chunk_size: int = DEFAULT_STREAM_CHUNK_SIZE,
+    ) -> Iterator[bytes]:
+        """
+        Yield an object's bytes in chunks of *chunk_size* without buffering it whole.
+
+        The streaming read primitive a consumer needs to hash or scan a large
+        (size-capped) object incrementally — the full payload is never
+        materialised in memory at once. The connection is held open for the
+        lifetime of the iterator and released when iteration finishes or the
+        generator is closed.
+        """
+        response = self.client.get_object(bucket, object_key)
+        try:
+            yield from response.stream(chunk_size)
         finally:
             response.close()
             response.release_conn()
