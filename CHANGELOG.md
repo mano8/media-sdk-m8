@@ -6,6 +6,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `ObjectStorage.stream_object(*, bucket, object_key, chunk_size=1 MiB)` — yields
+  an object's bytes in chunks without buffering it whole, the streaming read
+  primitive media-service-m8 needs to verify a SHA-256 over a large (size-capped)
+  upload without allocating the full object in memory (plan item 6.x.3). The
+  connection is held open for the iterator's lifetime and released on completion
+  or close. Stays DB-free and framework-agnostic.
+
 ## [0.3.0] - 2026-06-15
 
 ### Added

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from media_sdk_m8.storage.client import (
     DEFAULT_PRESIGNED_EXPIRE_SECONDS,
+    DEFAULT_STREAM_CHUNK_SIZE,
     ObjectStorage,
     ObjectStorageConfig,
     get_minio_client,
@@ -91,6 +92,44 @@ def test_get_object_reads_full_content():
     response.close.assert_called_once()
     response.release_conn.assert_called_once()
     assert result == b"full-bytes"
+
+
+def test_stream_object_yields_chunks_and_releases():
+    minio = MagicMock()
+    response = MagicMock()
+    response.stream.return_value = iter([b"aa", b"bb", b"cc"])
+    minio.get_object.return_value = response
+    chunks = list(
+        _storage(minio).stream_object(bucket="b", object_key="k", chunk_size=2)
+    )
+    minio.get_object.assert_called_once_with("b", "k")
+    response.stream.assert_called_once_with(2)
+    response.close.assert_called_once()
+    response.release_conn.assert_called_once()
+    assert chunks == [b"aa", b"bb", b"cc"]
+
+
+def test_stream_object_uses_default_chunk_size():
+    minio = MagicMock()
+    response = MagicMock()
+    response.stream.return_value = iter([b"x"])
+    minio.get_object.return_value = response
+    list(_storage(minio).stream_object(bucket="b", object_key="k"))
+    response.stream.assert_called_once_with(DEFAULT_STREAM_CHUNK_SIZE)
+
+
+def test_stream_object_releases_connection_on_error():
+    minio = MagicMock()
+    response = MagicMock()
+    response.stream.side_effect = RuntimeError("boom")
+    minio.get_object.return_value = response
+    gen = _storage(minio).stream_object(bucket="b", object_key="k")
+    try:
+        list(gen)
+    except RuntimeError:
+        pass
+    response.close.assert_called_once()
+    response.release_conn.assert_called_once()
 
 
 def test_list_object_keys_yields_recursive_keys():
