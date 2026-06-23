@@ -13,7 +13,13 @@ from media_sdk_m8.storage.client import (
 )
 
 
-def _config(*, secure: bool = False, expire: int = 120) -> ObjectStorageConfig:
+def _config(
+    *,
+    secure: bool = False,
+    expire: int = 120,
+    public_endpoint: str | None = None,
+    public_secure: bool | None = None,
+) -> ObjectStorageConfig:
     return ObjectStorageConfig(
         endpoint="minio:9000",
         access_key="ak",
@@ -21,6 +27,8 @@ def _config(*, secure: bool = False, expire: int = 120) -> ObjectStorageConfig:
         secure=secure,
         region="us-east-1",
         presigned_expire_seconds=expire,
+        public_endpoint=public_endpoint,
+        public_secure=public_secure,
     )
 
 
@@ -229,6 +237,68 @@ def test_presigned_get_object_honors_override_and_headers():
     minio.presigned_get_object.assert_called_once_with(
         "b", "k", expires=timedelta(seconds=60), response_headers=headers
     )
+
+
+def test_config_public_endpoint_defaults_to_none():
+    config = ObjectStorageConfig(
+        endpoint="e", access_key="a", secret_key="s", secure=True, region="r"
+    )
+    assert config.public_endpoint is None
+    assert config.public_secure is None
+
+
+def test_no_public_endpoint_reuses_internal_client_for_presign():
+    minio = MagicMock()
+    storage = _storage(minio)
+    assert storage._presign_client is storage.client
+    storage.presigned_get_object(bucket="b", object_key="k")
+    minio.presigned_get_object.assert_called_once()
+
+
+def test_no_public_endpoint_post_url_uses_internal_endpoint():
+    # Regression: behaviour byte-identical to today when no public endpoint set.
+    url = _storage(MagicMock()).post_upload_url(bucket="private-media")
+    assert url == "http://minio:9000/private-media"
+
+
+def test_public_endpoint_post_url_uses_public_host_and_scheme():
+    storage = ObjectStorage(
+        _config(public_endpoint="storage.example.com"), client=MagicMock()
+    )
+    # public_secure unset → falls back to internal secure (False here).
+    assert storage.post_upload_url(bucket="b") == "http://storage.example.com/b"
+
+
+def test_public_secure_override_flips_scheme_independently():
+    storage = ObjectStorage(
+        _config(
+            secure=False, public_endpoint="storage.example.com", public_secure=True
+        ),
+        client=MagicMock(),
+    )
+    assert storage.post_upload_url(bucket="b") == "https://storage.example.com/b"
+
+
+def test_presigned_get_signed_by_client_bound_to_public_endpoint():
+    internal = MagicMock()
+    presign = MagicMock()
+    with patch(
+        "media_sdk_m8.storage.client.get_minio_client", return_value=presign
+    ) as factory:
+        storage = ObjectStorage(
+            _config(public_endpoint="storage.example.com", public_secure=True),
+            client=internal,
+        )
+    # The presign client was built for the public endpoint, not the internal one.
+    factory.assert_called_once()
+    (built_config,), _ = factory.call_args
+    assert built_config.endpoint == "storage.example.com"
+    assert built_config.secure is True
+    assert storage._presign_client is presign
+
+    storage.presigned_get_object(bucket="b", object_key="k")
+    presign.presigned_get_object.assert_called_once()
+    internal.presigned_get_object.assert_not_called()
 
 
 def test_default_constructor_builds_minio_client():
