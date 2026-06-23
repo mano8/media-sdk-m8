@@ -49,6 +49,39 @@ read primitive an orphan reconciler uses to find bytes that have no DB row.
 Presigned-URL expiry defaults to `config.presigned_expire_seconds` and can be
 overridden per call via `expires_seconds`.
 
+#### Browser-direct presigned URLs (public endpoint)
+
+When the browser cannot resolve the internal MinIO host (e.g. `minio:9000` in a
+container stack), set the two optional endpoint fields:
+
+```python
+config = ObjectStorageConfig(
+    endpoint="minio:9000",       # internal — service and worker only
+    access_key="...",
+    secret_key="...",
+    secure=False,
+    region="us-east-1",
+    public_endpoint="127.0.0.1:9005",  # host:port, no scheme — browser-reachable
+    public_secure=False,               # scheme for public URLs; falls back to `secure` when None
+)
+```
+
+- `public_endpoint` — the host the browser hits, in `host:port` form (no scheme).
+  `post_upload_url` returns a URL built from this host/scheme; `presigned_get_object`
+  is signed by a client bound to this endpoint (SigV4 GET signatures bind the Host,
+  so the signing client must match the endpoint the browser sends the request to).
+- `public_secure` — TLS flag for the public endpoint. Falls back to `secure` when
+  omitted.
+
+All internal ops (`stat_object`, `get_object`, `copy_object`, etc.) always use
+`endpoint`, not `public_endpoint`. When `public_endpoint` is `None` (default),
+`post_upload_url` and `presigned_get_object` behave identically to before —
+compatible with proxy-through deployments and `media-worker-m8`.
+
+**Reverse-proxy requirement:** a proxy (e.g. Traefik) forwarding requests to MinIO
+must preserve the Host header (`passHostHeader: true` in Traefik, which is its
+default) so the SigV4 signature validates on arrival.
+
 ### Job contracts — `media_sdk_m8.contracts`
 
 Self-contained Pydantic v2 models that form the producer↔consumer contract. The
