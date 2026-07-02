@@ -8,6 +8,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `ObjectStorageConfig.public_endpoint` / `public_secure` — optional browser-reachable
+  endpoint for presigned URLs. When set, `post_upload_url` returns a URL using the
+  public host/scheme and `presigned_get_object` is signed by a client bound to that
+  endpoint (required because SigV4 GET signatures bind the Host). All internal ops
+  (`stat_object`, `remove_object`, `get_object`, `copy_object`, etc.) continue to
+  use the internal endpoint unchanged. Setting `public_endpoint=None` (the default)
+  preserves byte-identical behaviour. Reverse proxies forwarding to MinIO must
+  preserve the Host header (`passHostHeader: true` in Traefik, its default) so
+  the SigV4 signature validates.
+
 - `ObjectStorage.stream_object(*, bucket, object_key, chunk_size=1 MiB)` — yields
   an object's bytes in chunks without buffering it whole, the streaming read
   primitive media-service-m8 needs to verify a SHA-256 over a large (size-capped)

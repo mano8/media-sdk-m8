@@ -13,7 +13,13 @@ from media_sdk_m8.storage.client import (
 )
 
 
-def _config(*, secure: bool = False, expire: int = 120) -> ObjectStorageConfig:
+def _config(
+    *,
+    secure: bool = False,
+    expire: int = 120,
+    public_endpoint: str | None = None,
+    public_secure: bool | None = None,
+) -> ObjectStorageConfig:
     return ObjectStorageConfig(
         endpoint="minio:9000",
         access_key="ak",
@@ -21,6 +27,8 @@ def _config(*, secure: bool = False, expire: int = 120) -> ObjectStorageConfig:
         secure=secure,
         region="us-east-1",
         presigned_expire_seconds=expire,
+        public_endpoint=public_endpoint,
+        public_secure=public_secure,
     )
 
 
@@ -231,6 +239,68 @@ def test_presigned_get_object_honors_override_and_headers():
     )
 
 
+def test_config_public_endpoint_defaults_to_none():
+    config = ObjectStorageConfig(
+        endpoint="e", access_key="a", secret_key="s", secure=True, region="r"
+    )
+    assert config.public_endpoint is None
+    assert config.public_secure is None
+
+
+def test_no_public_endpoint_reuses_internal_client_for_presign():
+    minio = MagicMock()
+    storage = _storage(minio)
+    assert storage._presign_client is storage.client
+    storage.presigned_get_object(bucket="b", object_key="k")
+    minio.presigned_get_object.assert_called_once()
+
+
+def test_no_public_endpoint_post_url_uses_internal_endpoint():
+    # Regression: behaviour byte-identical to today when no public endpoint set.
+    url = _storage(MagicMock()).post_upload_url(bucket="private-media")
+    assert url == "http://minio:9000/private-media"
+
+
+def test_public_endpoint_post_url_uses_public_host_and_scheme():
+    storage = ObjectStorage(
+        _config(public_endpoint="storage.example.com"), client=MagicMock()
+    )
+    # public_secure unset → falls back to internal secure (False here).
+    assert storage.post_upload_url(bucket="b") == "http://storage.example.com/b"
+
+
+def test_public_secure_override_flips_scheme_independently():
+    storage = ObjectStorage(
+        _config(
+            secure=False, public_endpoint="storage.example.com", public_secure=True
+        ),
+        client=MagicMock(),
+    )
+    assert storage.post_upload_url(bucket="b") == "https://storage.example.com/b"
+
+
+def test_presigned_get_signed_by_client_bound_to_public_endpoint():
+    internal = MagicMock()
+    presign = MagicMock()
+    with patch(
+        "media_sdk_m8.storage.client.get_minio_client", return_value=presign
+    ) as factory:
+        storage = ObjectStorage(
+            _config(public_endpoint="storage.example.com", public_secure=True),
+            client=internal,
+        )
+    # The presign client was built for the public endpoint, not the internal one.
+    factory.assert_called_once()
+    (built_config,), _ = factory.call_args
+    assert built_config.endpoint == "storage.example.com"
+    assert built_config.secure is True
+    assert storage._presign_client is presign
+
+    storage.presigned_get_object(bucket="b", object_key="k")
+    presign.presigned_get_object.assert_called_once()
+    internal.presigned_get_object.assert_not_called()
+
+
 def test_default_constructor_builds_minio_client():
     fake_minio = MagicMock()
     with patch(
@@ -252,3 +322,175 @@ def test_get_minio_client_constructs_minio_instance():
         secure=True,
         region="us-east-1",
     )
+
+
+# ---------------------------------------------------------------------------
+# public_endpoint validation — malformed input rejection
+# ---------------------------------------------------------------------------
+
+
+def _base_config_kwargs() -> dict:
+    return {
+        "endpoint": "minio:9000",
+        "access_key": "ak",
+        "secret_key": "sk",
+        "secure": False,
+        "region": "us-east-1",
+    }
+
+
+def test_public_endpoint_with_scheme_rejected():
+    """Rejects any value that contains '://'; catches accidental full-URL passthrough."""
+    import pytest
+
+    with pytest.raises(ValueError, match="public_endpoint"):
+        ObjectStorageConfig(
+            **_base_config_kwargs(), public_endpoint="https://storage.example.com"
+        )
+
+
+def test_public_endpoint_ftp_scheme_rejected():
+    import pytest
+
+    with pytest.raises(ValueError, match="public_endpoint"):
+        ObjectStorageConfig(
+            **_base_config_kwargs(), public_endpoint="ftp://storage.example.com"
+        )
+
+
+def test_public_endpoint_url_with_missing_host_rejected():
+    """'https:///missing-host' — full-URL string, rejected on '://'."""
+    import pytest
+
+    with pytest.raises(ValueError, match="public_endpoint"):
+        ObjectStorageConfig(
+            **_base_config_kwargs(), public_endpoint="https:///missing-host"
+        )
+
+
+def test_public_endpoint_userinfo_in_netloc_rejected():
+    """Rejects netloc that includes userinfo (@ sign) — would corrupt presigned URL host."""
+    import pytest
+
+    with pytest.raises(ValueError, match="public_endpoint"):
+        ObjectStorageConfig(
+            **_base_config_kwargs(), public_endpoint="user:pass@storage.example.com"
+        )
+
+
+def test_public_endpoint_fragment_rejected():
+    import pytest
+
+    with pytest.raises(ValueError, match="public_endpoint"):
+        ObjectStorageConfig(
+            **_base_config_kwargs(), public_endpoint="storage.example.com#section"
+        )
+
+
+def test_public_endpoint_query_string_rejected():
+    import pytest
+
+    with pytest.raises(ValueError, match="public_endpoint"):
+        ObjectStorageConfig(
+            **_base_config_kwargs(), public_endpoint="storage.example.com?foo=bar"
+        )
+
+
+def test_public_endpoint_empty_string_rejected():
+    import pytest
+
+    with pytest.raises(ValueError, match="public_endpoint"):
+        ObjectStorageConfig(**_base_config_kwargs(), public_endpoint="")
+
+
+def test_public_endpoint_whitespace_only_rejected():
+    import pytest
+
+    with pytest.raises(ValueError, match="public_endpoint"):
+        ObjectStorageConfig(**_base_config_kwargs(), public_endpoint="   ")
+
+
+def test_public_endpoint_bare_hostname_accepted():
+    """Bare hostname (service standard port) is valid host:port format."""
+    config = ObjectStorageConfig(
+        **_base_config_kwargs(), public_endpoint="storage.example.com"
+    )
+    assert config.public_endpoint == "storage.example.com"
+
+
+def test_public_endpoint_host_port_accepted():
+    config = ObjectStorageConfig(
+        **_base_config_kwargs(), public_endpoint="storage.example.com:443"
+    )
+    assert config.public_endpoint == "storage.example.com:443"
+
+
+def test_public_endpoint_loopback_with_port_accepted():
+    config = ObjectStorageConfig(
+        **_base_config_kwargs(), public_endpoint="localhost:9000"
+    )
+    assert config.public_endpoint == "localhost:9000"
+
+
+def test_public_endpoint_loopback_ip_with_port_accepted():
+    config = ObjectStorageConfig(
+        **_base_config_kwargs(), public_endpoint="127.0.0.1:9000"
+    )
+    assert config.public_endpoint == "127.0.0.1:9000"
+
+
+# ---------------------------------------------------------------------------
+# Presigned URL host/scheme normalization
+# ---------------------------------------------------------------------------
+
+
+def test_presigned_post_url_uses_public_host_and_http_scheme():
+    """POST upload URL uses the public host and derives http from public_secure=False."""
+    storage = ObjectStorage(
+        _config(public_endpoint="storage.example.com", public_secure=False),
+        client=MagicMock(),
+    )
+    assert storage.post_upload_url(bucket="media") == "http://storage.example.com/media"
+
+
+def test_presigned_post_url_uses_public_host_and_https_scheme():
+    """POST upload URL uses the public host and derives https from public_secure=True."""
+    storage = ObjectStorage(
+        _config(
+            secure=False, public_endpoint="storage.example.com", public_secure=True
+        ),
+        client=MagicMock(),
+    )
+    assert (
+        storage.post_upload_url(bucket="media") == "https://storage.example.com/media"
+    )
+
+
+def test_presigned_post_url_with_port_preserves_port():
+    """Public host:port (e.g. loopback dev endpoint) is preserved in the POST URL."""
+    storage = ObjectStorage(
+        _config(public_endpoint="127.0.0.1:9000", public_secure=False),
+        client=MagicMock(),
+    )
+    assert storage.post_upload_url(bucket="b") == "http://127.0.0.1:9000/b"
+
+
+def test_presigned_get_uses_client_bound_to_public_host_and_secure_flag():
+    """Presigned GET is signed by a MinIO client configured for the public endpoint."""
+    internal = MagicMock()
+    presign = MagicMock()
+    with patch(
+        "media_sdk_m8.storage.client.get_minio_client", return_value=presign
+    ) as factory:
+        storage = ObjectStorage(
+            _config(public_endpoint="storage.example.com", public_secure=True),
+            client=internal,
+        )
+    factory.assert_called_once()
+    (built_config,), _ = factory.call_args
+    assert built_config.endpoint == "storage.example.com"
+    assert built_config.secure is True
+
+    storage.presigned_get_object(bucket="b", object_key="k")
+    presign.presigned_get_object.assert_called_once()
+    internal.presigned_get_object.assert_not_called()

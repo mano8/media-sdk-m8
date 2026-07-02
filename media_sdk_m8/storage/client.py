@@ -8,7 +8,7 @@ explicitly — the SDK never reads settings or env on its own.
 
 import io
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -17,6 +17,29 @@ DEFAULT_PRESIGNED_EXPIRE_SECONDS = 300
 
 #: Default chunk size (bytes) for :meth:`ObjectStorage.stream_object` — 1 MiB.
 DEFAULT_STREAM_CHUNK_SIZE = 1024 * 1024
+
+# Characters that must not appear in a bare host/host:port public endpoint.
+# Their presence indicates an accidentally-passed full URL or embedded credentials.
+_PUBLIC_ENDPOINT_FORBIDDEN = ("://", "@", "#", "?")
+
+
+def _validate_public_endpoint(endpoint: str) -> None:
+    """
+    Reject malformed bare-host public endpoint strings.
+
+    ``public_endpoint`` is a ``host`` or ``host:port`` string (no scheme).
+    Scheme, userinfo, fragment, and query components must never appear here —
+    they indicate an accidentally-passed full URL or embedded credentials that
+    would corrupt presigned URL construction.
+    """
+    if not endpoint.strip():
+        raise ValueError("public_endpoint must not be empty")
+    for pat in _PUBLIC_ENDPOINT_FORBIDDEN:
+        if pat in endpoint:
+            raise ValueError(
+                f"public_endpoint must be a bare host or host:port with no scheme, "
+                f"credentials, or query components; got {endpoint!r} (contains {pat!r})"
+            )
 
 
 @dataclass(frozen=True)
@@ -29,6 +52,16 @@ class ObjectStorageConfig:
     secure: bool
     region: str
     presigned_expire_seconds: int = DEFAULT_PRESIGNED_EXPIRE_SECONDS
+    #: Optional browser-reachable endpoint (``host:port``, no scheme) used **only**
+    #: when minting presigned URLs. Leave ``None`` to sign every URL for the
+    #: internal ``endpoint`` (current behaviour, e.g. proxy-through deployments).
+    public_endpoint: str | None = None
+    #: TLS setting for ``public_endpoint``; falls back to ``secure`` when ``None``.
+    public_secure: bool | None = None
+
+    def __post_init__(self) -> None:
+        if self.public_endpoint is not None:
+            _validate_public_endpoint(self.public_endpoint)
 
 
 def get_minio_client(config: ObjectStorageConfig) -> Any:
@@ -50,6 +83,24 @@ class ObjectStorage:
     def __init__(self, config: ObjectStorageConfig, client: Any | None = None) -> None:
         self.config = config
         self.client = client or get_minio_client(config)
+        # Presigning is the only surface that must point at the browser-reachable
+        # host. When no public endpoint is configured the presign client *is* the
+        # internal client (byte-identical behaviour); otherwise it is a second
+        # client bound to the public endpoint, sharing the same creds/region.
+        if config.public_endpoint is None:
+            self._presign_client = self.client
+        else:
+            self._presign_client = get_minio_client(self._presign_target)
+
+    @property
+    def _presign_target(self) -> ObjectStorageConfig:
+        """Config whose endpoint/scheme presigned URLs are signed for."""
+        public_endpoint = self.config.public_endpoint
+        if public_endpoint is None:
+            return self.config
+        public_secure = self.config.public_secure
+        secure = self.config.secure if public_secure is None else public_secure
+        return replace(self.config, endpoint=public_endpoint, secure=secure)
 
     def stat_object(self, *, bucket: str, object_key: str) -> Any:
         """Return object metadata from storage."""
@@ -180,9 +231,14 @@ class ObjectStorage:
         ``presigned_post_policy`` only returns the signed form fields, not the
         target URL; MinIO uses path-style addressing, so the form is POSTed to
         ``{scheme}://{host}:{port}/{bucket}``.
+
+        A POST policy signs the conditions, **not** the host, so this only
+        swaps the returned URL string to the public endpoint when one is set —
+        the signature stays valid for the browser-direct POST.
         """
-        scheme = "https" if self.config.secure else "http"
-        return f"{scheme}://{self.config.endpoint}/{bucket}"
+        target = self._presign_target
+        scheme = "https" if target.secure else "http"
+        return f"{scheme}://{target.endpoint}/{bucket}"
 
     def presigned_post_object(
         self,
@@ -231,11 +287,20 @@ class ObjectStorage:
         expires_seconds: int | None = None,
         response_headers: dict[str, str] | None = None,
     ) -> str:
-        """Generate a presigned GET URL."""
+        """
+        Generate a presigned GET URL.
+
+        Unlike a POST policy, a SigV4 presigned GET **binds the Host**, so the
+        URL must be signed by a client whose endpoint equals the host the
+        browser hits — hence ``self._presign_client`` (the public endpoint when
+        configured). Behind a reverse proxy the proxy **must preserve the Host
+        header** (Traefik ``passHostHeader: true``, its default) or the
+        signature will not validate.
+        """
         expires = timedelta(
             seconds=expires_seconds or self.config.presigned_expire_seconds
         )
-        return self.client.presigned_get_object(
+        return self._presign_client.presigned_get_object(
             bucket,
             object_key,
             expires=expires,
