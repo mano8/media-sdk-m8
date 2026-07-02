@@ -18,6 +18,29 @@ DEFAULT_PRESIGNED_EXPIRE_SECONDS = 300
 #: Default chunk size (bytes) for :meth:`ObjectStorage.stream_object` — 1 MiB.
 DEFAULT_STREAM_CHUNK_SIZE = 1024 * 1024
 
+# Characters that must not appear in a bare host/host:port public endpoint.
+# Their presence indicates an accidentally-passed full URL or embedded credentials.
+_PUBLIC_ENDPOINT_FORBIDDEN = ("://", "@", "#", "?")
+
+
+def _validate_public_endpoint(endpoint: str) -> None:
+    """
+    Reject malformed bare-host public endpoint strings.
+
+    ``public_endpoint`` is a ``host`` or ``host:port`` string (no scheme).
+    Scheme, userinfo, fragment, and query components must never appear here —
+    they indicate an accidentally-passed full URL or embedded credentials that
+    would corrupt presigned URL construction.
+    """
+    if not endpoint.strip():
+        raise ValueError("public_endpoint must not be empty")
+    for pat in _PUBLIC_ENDPOINT_FORBIDDEN:
+        if pat in endpoint:
+            raise ValueError(
+                f"public_endpoint must be a bare host or host:port with no scheme, "
+                f"credentials, or query components; got {endpoint!r} (contains {pat!r})"
+            )
+
 
 @dataclass(frozen=True)
 class ObjectStorageConfig:
@@ -35,6 +58,10 @@ class ObjectStorageConfig:
     public_endpoint: str | None = None
     #: TLS setting for ``public_endpoint``; falls back to ``secure`` when ``None``.
     public_secure: bool | None = None
+
+    def __post_init__(self) -> None:
+        if self.public_endpoint is not None:
+            _validate_public_endpoint(self.public_endpoint)
 
 
 def get_minio_client(config: ObjectStorageConfig) -> Any:
