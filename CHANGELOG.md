@@ -10,8 +10,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Finalize CHANGELOG: document all shipped features and security hardening from the
-  0.4.0 and 0.5.0 releases that were omitted from prior entries. No code change.
+- Finalize CHANGELOG: document all shipped features and security hardening
+  from the 0.4.0 and 0.5.0 releases that were omitted from prior entries.
+  No code change.
 
 ## [0.5.0] - 2026-07-02
 
@@ -26,10 +27,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   preserves byte-identical behaviour. Reverse proxies forwarding to MinIO must
   preserve the Host header (`passHostHeader: true` in Traefik, its default) so
   the SigV4 signature validates.
-- `_validate_public_endpoint` guard on `ObjectStorageConfig` rejects values containing
-  a scheme (`://`), embedded userinfo (`@`), fragment (`#`), or query string (`?`) —
-  patterns that indicate an accidentally-passed full URL or credential-carrying netloc
-  that would corrupt presigned URL construction.
+- `_validate_public_endpoint` guard on `ObjectStorageConfig` rejects values
+  containing a scheme (`://`), embedded userinfo (`@`), fragment (`#`), or
+  query string (`?`) — patterns indicating an accidentally-passed full URL
+  or credential-carrying netloc that would corrupt presigned URL construction.
 - Hash-pinned `constraints-all.txt` snapshot of the full public-PyPI dependency
   closure, consumed by the Dockerfile release build with `--require-hashes`.
 - `tests/test_ci_policy.py` — locks CI invariants: no long-lived `PYPI_API_TOKEN`,
