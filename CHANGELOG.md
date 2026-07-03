@@ -6,6 +6,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-03
+
+### Changed
+
+- Finalize CHANGELOG: document all shipped features and security hardening
+  from the 0.4.0 and 0.5.0 releases that were omitted from prior entries.
+  No code change.
+
+## [0.5.0] - 2026-07-02
+
 ### Added
 
 - `ObjectStorageConfig.public_endpoint` / `public_secure` — optional browser-reachable
@@ -17,6 +27,25 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   preserves byte-identical behaviour. Reverse proxies forwarding to MinIO must
   preserve the Host header (`passHostHeader: true` in Traefik, its default) so
   the SigV4 signature validates.
+- `_validate_public_endpoint` guard on `ObjectStorageConfig` rejects values
+  containing a scheme (`://`), embedded userinfo (`@`), fragment (`#`), or
+  query string (`?`) — patterns indicating an accidentally-passed full URL
+  or credential-carrying netloc that would corrupt presigned URL construction.
+- Hash-pinned `constraints-all.txt` snapshot of the full public-PyPI dependency
+  closure, consumed by the Dockerfile release build with `--require-hashes`.
+- `tests/test_ci_policy.py` — locks CI invariants: no long-lived `PYPI_API_TOKEN`,
+  `id-token: write` present, protected PyPI environment, no duplicate `ci.yml`,
+  SHA-pinned action refs in both workflows, `constraints-all.txt` exists and pins
+  runtime deps without custom index URLs.
+
+### Changed
+
+- PyPI publish workflow migrated to OIDC Trusted Publishing; removed long-lived
+  `PYPI_API_TOKEN` secret.
+
+## [0.4.0] - 2026-06-19
+
+### Added
 
 - `ObjectStorage.stream_object(*, bucket, object_key, chunk_size=1 MiB)` — yields
   an object's bytes in chunks without buffering it whole, the streaming read
