@@ -23,3 +23,6 @@ exclude_paths:
   - "*.egg-info/**"
   - ".pytest_cache/**"
   - "**/__pycache__/**"
+  - "AGENTS.md"
+  - "CLAUDE.md"
+  - "REPOSITORY_CONTEXT.md"
