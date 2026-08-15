@@ -6,6 +6,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-08-15
+
+### Added
+
+- `tests/test_changelog_version_parity.py` — asserts the current
+  `pyproject.toml` `[project]` version has a matching `## [x.y.z]` heading in
+  `CHANGELOG.md`, so a release can no longer ship undocumented
+  (`A32-changelog-version-parity`).
+
 ## [0.5.1] - 2026-07-03
 
 ### Changed
