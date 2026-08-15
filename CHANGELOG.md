@@ -15,6 +15,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `CHANGELOG.md`, so a release can no longer ship undocumented
   (`A32-changelog-version-parity`).
 
+### Changed
+
+- **Breaking:** floor raised to Python 3.12 (`requires-python`, classifiers,
+  and the CI test matrix all dropped 3.11); 3.14 added to classifiers,
+  matching the range CI already exercises.
+
 ## [0.5.1] - 2026-07-03
 
 ### Changed
