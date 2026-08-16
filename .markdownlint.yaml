@@ -1,0 +1,33 @@
+---
+# markdownlint configuration, also consumed by Codacy's markdownlint engine when
+# the repository is set to use its own configuration files.
+#
+# Scope note: a config file supplies markdownlint's *defaults* for every rule it
+# does not mention, so this file deliberately restates the rule this repository
+# already does not enforce (MD013).
+#
+# Fleet baseline (A34): every repo with a CHANGELOG.md carries this MD024
+# override, worded identically, so Codacy's markdownlint engine does not fail
+# on the Keep a Changelog format. See fastapi-m8's `.markdownlint.yaml` for the
+# canonical rationale text this is copied from.
+
+# MD024/no-duplicate-heading — restrict to sibling headings.
+#
+# CHANGELOG.md follows Keep a Changelog, where every release section repeats the
+# same subsection names (### Added / ### Changed / ### Fixed …). Under the
+# default setting that makes each release after the first a stack of
+# duplicate-heading errors, purely as a function of how many releases the file
+# records. The duplication is the format, not a defect, and renaming the
+# sections to be unique would break the convention every reader relies on.
+#
+# siblings_only flags a duplicate only when it shares a parent heading, so
+# "### Added" under two different `## [x.y.z]` releases both pass, while two
+# "### Added" blocks inside one release — a real editing mistake — still fail.
+MD024:
+  siblings_only: true
+
+# MD013/line-length — off (A34, 2026-08-15: was previously omitted from this
+# file, leaving README.md's 5 over-80-column lines failing Codacy). README.md
+# wraps prose for readability rather than to a fixed column. Python line length
+# is enforced separately, by ruff.
+MD013: false
