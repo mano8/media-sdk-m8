@@ -6,7 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.5.2] - 2026-08-15
+## [0.6.0] - 2026-08-16
+
+Renumbered from the unreleased `0.5.2` heading dated 2026-08-15. Nothing shipped
+under `0.5.2` — the latest published release is `0.5.1` — and the Python floor
+raise below is a breaking change, which under this project's 0.x SemVer is a
+minor bump, not a patch. Content is unchanged from the `0.5.2` entry.
 
 ### Added
 
