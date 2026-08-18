@@ -34,12 +34,19 @@ Build the client from an explicit config rather than a service settings module:
 ```python
 from media_sdk_m8 import ObjectStorage, ObjectStorageConfig, ScanJobPayload
 
-storage = ObjectStorage(ObjectStorageConfig(
-    endpoint="minio:9000", access_key="...", secret_key="...",
-    secure=False, region="us-east-1",
-))
+storage = ObjectStorage(
+    ObjectStorageConfig(
+        endpoint="minio:9000",
+        access_key="...",
+        secret_key="...",
+        secure=False,
+        region="us-east-1",
+    )
+)
 payload = ScanJobPayload(
-    object_id=object_id, bucket="private-media", object_key=key,
+    object_id=object_id,
+    bucket="private-media",
+    object_key=key,
     owner_user_id=user_id,
 )
 ```

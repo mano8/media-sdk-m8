@@ -56,13 +56,13 @@ container stack), set the two optional endpoint fields:
 
 ```python
 config = ObjectStorageConfig(
-    endpoint="minio:9000",       # internal — service and worker only
+    endpoint="minio:9000",  # internal — service and worker only
     access_key="...",
     secret_key="...",
     secure=False,
     region="us-east-1",
     public_endpoint="127.0.0.1:9005",  # host:port, no scheme — browser-reachable
-    public_secure=False,               # scheme for public URLs; falls back to `secure` when None
+    public_secure=False,  # scheme for public URLs; falls back to `secure` when None
 )
 ```
 

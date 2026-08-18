@@ -25,6 +25,10 @@ minor bump, not a patch. Content is unchanged from the `0.5.2` entry.
 - **Breaking:** floor raised to Python 3.12 (`requires-python`, classifiers,
   and the CI test matrix all dropped 3.11); 3.14 added to classifiers,
   matching the range CI already exercises.
+- Python samples in `README.md` and `REPOSITORY_CONTEXT.md` reformatted to
+  satisfy `ruff format`: ruff 0.16 formats fenced Python blocks inside Markdown,
+  and both files' samples predated that (aligned trailing comments, condensed
+  call arguments) so `ruff format --check .` failed CI on documentation alone.
 
 ## [0.5.1] - 2026-07-03
 
