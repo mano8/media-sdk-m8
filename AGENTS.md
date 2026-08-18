@@ -5,4 +5,3 @@
 Read `REPOSITORY_CONTEXT.md` for the neutral repository context. A verified nearest
 workspace may provide optional launcher-selected enhancement; it is never required
 for standalone work.
-
