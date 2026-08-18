@@ -6,6 +6,30 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-16
+
+Renumbered from the unreleased `0.5.2` heading dated 2026-08-15. Nothing shipped
+under `0.5.2` — the latest published release is `0.5.1` — and the Python floor
+raise below is a breaking change, which under this project's 0.x SemVer is a
+minor bump, not a patch. Content is unchanged from the `0.5.2` entry.
+
+### Added
+
+- `tests/test_changelog_version_parity.py` — asserts the current
+  `pyproject.toml` `[project]` version has a matching `## [x.y.z]` heading in
+  `CHANGELOG.md`, so a release can no longer ship undocumented
+  (`A32-changelog-version-parity`).
+
+### Changed
+
+- **Breaking:** floor raised to Python 3.12 (`requires-python`, classifiers,
+  and the CI test matrix all dropped 3.11); 3.14 added to classifiers,
+  matching the range CI already exercises.
+- Python samples in `README.md` and `REPOSITORY_CONTEXT.md` reformatted to
+  satisfy `ruff format`: ruff 0.16 formats fenced Python blocks inside Markdown,
+  and both files' samples predated that (aligned trailing comments, condensed
+  call arguments) so `ruff format --check .` failed CI on documentation alone.
+
 ## [0.5.1] - 2026-07-03
 
 ### Changed
