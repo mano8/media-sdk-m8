@@ -40,11 +40,18 @@ storage.put_object(
 ```
 
 Methods: `stat_object`, `remove_object`, `get_object_head`, `get_object`,
-`list_object_keys`, `put_object`, `set_object_content_type`, `copy_object`,
-`post_upload_url`, `presigned_post_object`, `presigned_get_object`.
+`stream_object`, `list_object_keys`, `put_object`, `put_object_stream`,
+`set_object_content_type`, `copy_object`, `post_upload_url`,
+`presigned_post_object`, `presigned_get_object`.
 
 `list_object_keys(*, bucket, prefix="")` recursively yields stored keys — the
 read primitive an orphan reconciler uses to find bytes that have no DB row.
+
+`stream_object` and `put_object_stream` are the unbuffered pair. The first
+yields an object's bytes in chunks; the second writes `length` bytes from an
+open file-like object, for a payload the caller has already assembled on disk
+(an archive export, say) that `put_object`'s `bytes` argument would force
+resident in memory.
 
 Presigned-URL expiry defaults to `config.presigned_expire_seconds` and can be
 overridden per call via `expires_seconds`.
@@ -92,6 +99,9 @@ service builds and enqueues them; the worker deserializes and acts on them.
   `output_options` is the imgtools-shaped dict (one format + `name`) built by the
   service, so the worker needs no preset or key knowledge.
 - `VariantJobPayload` — `{ job_id, media_object_id, source_bucket, source_object_key, specs }`
+- `ExportArchiveEntry` — one validated, traversal-safe source-object → ZIP-entry
+  mapping; `ExportArchiveJobPayload` carries the authorized manifest, entries,
+  target, chunk size and presign lifetime for delegated archive assembly.
 - `OutboxEventPayload` — `{ event_id, event_type, object_id, payload, created_at }`;
   the outbound webhook contract. media-service-m8 writes one per state change to
   its transactional outbox and POSTs this HMAC-signed body to subscriber URLs, so

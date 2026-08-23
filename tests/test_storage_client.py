@@ -1,5 +1,6 @@
 """Tests for media_sdk_m8.storage.client.ObjectStorage."""
 
+import io
 import sys
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
@@ -67,6 +68,41 @@ def test_put_object_streams_bytes_with_length():
     assert args[2].read() == b"abc"
     assert kwargs["length"] == 3
     assert kwargs["content_type"] == "image/webp"
+
+
+def test_put_object_stream_hands_the_handle_over_unbuffered():
+    """The open handle itself is passed through — never read into memory first."""
+    minio = MagicMock()
+    handle = io.BytesIO(b"zip-bytes")
+    _storage(minio).put_object_stream(
+        bucket="b",
+        object_key="k",
+        data=handle,
+        length=9,
+        content_type="application/zip",
+    )
+    minio.put_object.assert_called_once()
+    args, kwargs = minio.put_object.call_args
+    assert args[0] == "b"
+    assert args[1] == "k"
+    assert args[2] is handle
+    assert kwargs["length"] == 9
+    assert kwargs["content_type"] == "application/zip"
+
+
+def test_put_object_stream_reads_from_the_current_position():
+    """Delegation does not rewind: the caller owns the handle's position."""
+    minio = MagicMock()
+    handle = io.BytesIO(b"skipme-payload")
+    handle.seek(6)
+    _storage(minio).put_object_stream(
+        bucket="b",
+        object_key="k",
+        data=handle,
+        length=8,
+        content_type="application/zip",
+    )
+    assert minio.put_object.call_args.args[2].read() == b"-payload"
 
 
 def test_get_object_head_reads_partial_bytes():
