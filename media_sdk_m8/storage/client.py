@@ -10,7 +10,7 @@ import io
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import IO, Any
 
 #: Fallback lifetime (seconds) for presigned URLs when a caller omits one.
 DEFAULT_PRESIGNED_EXPIRE_SECONDS = 300
@@ -174,6 +174,34 @@ class ObjectStorage:
             object_key,
             io.BytesIO(data),
             length=len(data),
+            content_type=content_type,
+        )
+
+    def put_object_stream(
+        self,
+        *,
+        bucket: str,
+        object_key: str,
+        data: IO[bytes],
+        length: int,
+        content_type: str,
+    ) -> Any:
+        """
+        Write *length* bytes from an open file-like object without buffering them.
+
+        The write-side counterpart of :meth:`stream_object`. :meth:`put_object`
+        takes ``bytes``, which is right for a generated image variant but wrong
+        for a payload a consumer has already assembled on disk — an archive
+        export, say — where taking ``bytes`` would force the whole payload
+        resident in memory just to hand it over. *data* is read incrementally
+        by the underlying client from its current position; the caller owns the
+        handle and its lifetime, and must pass the exact byte count.
+        """
+        return self.client.put_object(
+            bucket,
+            object_key,
+            data,
+            length=length,
             content_type=content_type,
         )
 

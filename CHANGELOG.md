@@ -6,6 +6,25 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-23
+
+### Added
+
+- `ObjectStorage.put_object_stream(*, bucket, object_key, data, length,
+  content_type)` — write-side counterpart of `stream_object`. Hands an open
+  file-like object to the underlying client unbuffered, so a consumer that has
+  already assembled a payload on disk (media-service-m8's archive export) does
+  not have to make it resident in memory just to pass it to `put_object`, whose
+  `bytes` argument is right for a generated image variant and wrong here. The
+  caller owns the handle and its position, and passes the exact byte count.
+  This lands the primitive in the platform layer beside the rest of
+  `ObjectStorage` rather than leaving a private copy at a service's storage
+  boundary (`ARCH-LAYER-DIRECTION`).
+
+Minor rather than patch under this project's 0.x SemVer: consumers pin
+`media-sdk-m8>=0.6.0,<0.7.0`, so both media-service-m8 and media-worker-m8 raise
+their floor to `>=0.7.0,<0.8.0` with this release.
+
 ## [0.6.0] - 2026-08-16
 
 Renumbered from the unreleased `0.5.2` heading dated 2026-08-15. Nothing shipped
