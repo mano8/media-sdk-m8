@@ -9,7 +9,8 @@ Platform (shared media SDK).
 Provide shared, settings-agnostic media primitives for `media-service-m8` (job
 producer) and `media-worker-m8` (job consumer). The package owns the object-storage
 client (`ObjectStorage` / `ObjectStorageConfig`) and producer-to-consumer job
-contracts (`ScanJobPayload`, `VariantSpec`, `VariantJobPayload`).
+contracts (`ScanJobPayload`, `VariantSpec`, `VariantJobPayload`,
+`ExportArchiveEntry`, `ExportArchiveJobPayload`).
 
 ## Repository boundaries
 

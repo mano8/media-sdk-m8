@@ -20,6 +20,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   This lands the primitive in the platform layer beside the rest of
   `ObjectStorage` rather than leaving a private copy at a service's storage
   boundary (`ARCH-LAYER-DIRECTION`).
+- `ExportArchiveEntry` and `ExportArchiveJobPayload` — the immutable
+  producer↔consumer contract for `P2 U11`. media-service resolves authorization
+  and storage references before enqueueing; the DB-free media-worker validates
+  the payload, streams the ZIP, and reports through the service's internal HTTP
+  boundary.
 
 Minor rather than patch under this project's 0.x SemVer: consumers pin
 `media-sdk-m8>=0.6.0,<0.7.0`, so both media-service-m8 and media-worker-m8 raise

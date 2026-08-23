@@ -99,6 +99,9 @@ service builds and enqueues them; the worker deserializes and acts on them.
   `output_options` is the imgtools-shaped dict (one format + `name`) built by the
   service, so the worker needs no preset or key knowledge.
 - `VariantJobPayload` — `{ job_id, media_object_id, source_bucket, source_object_key, specs }`
+- `ExportArchiveEntry` — one validated, traversal-safe source-object → ZIP-entry
+  mapping; `ExportArchiveJobPayload` carries the authorized manifest, entries,
+  target, chunk size and presign lifetime for delegated archive assembly.
 - `OutboxEventPayload` — `{ event_id, event_type, object_id, payload, created_at }`;
   the outbound webhook contract. media-service-m8 writes one per state change to
   its transactional outbox and POSTs this HMAC-signed body to subscriber URLs, so

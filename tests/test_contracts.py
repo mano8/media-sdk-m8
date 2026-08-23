@@ -7,6 +7,8 @@ import pytest
 from pydantic import ValidationError
 
 from media_sdk_m8 import (
+    ExportArchiveEntry,
+    ExportArchiveJobPayload,
     OutboxEventPayload,
     ScanJobPayload,
     VariantJobPayload,
@@ -96,6 +98,69 @@ def test_payloads_are_frozen():
     spec = _spec()
     with pytest.raises(ValidationError):
         spec.variant_name = "other"
+
+
+def _archive_entry() -> ExportArchiveEntry:
+    object_id = uuid4()
+    return ExportArchiveEntry(
+        object_id=object_id,
+        source_bucket="private-media",
+        source_object_key=f"users/u/document/{object_id}/original/report.pdf",
+        archive_path=f"files/{object_id}/report.pdf",
+        size_bytes=1024,
+    )
+
+
+def test_export_archive_job_payload_round_trips():
+    payload = ExportArchiveJobPayload(
+        job_id=uuid4(),
+        manifest_json='{"category_tree":[],"objects":[]}',
+        objects=[_archive_entry()],
+        target_bucket="temp-media",
+        target_object_key="users/u/exports/result.zip",
+        stream_chunk_size=1024,
+        presigned_expire_seconds=300,
+    )
+
+    restored = ExportArchiveJobPayload.model_validate_json(payload.model_dump_json())
+
+    assert restored == payload
+    assert restored.objects[0].size_bytes == 1024
+
+
+@pytest.mark.parametrize(
+    "archive_path",
+    [
+        "/absolute/file.pdf",
+        "../file.pdf",
+        "files/../file.pdf",
+        "files\\file.pdf",
+        "C:/absolute/file.pdf",
+        "other/object/file.pdf",
+    ],
+)
+def test_export_archive_entry_rejects_unsafe_paths(archive_path: str):
+    with pytest.raises(ValidationError):
+        ExportArchiveEntry(
+            object_id=uuid4(),
+            source_bucket="private-media",
+            source_object_key="source",
+            archive_path=archive_path,
+            size_bytes=1,
+        )
+
+
+def test_export_archive_payload_allows_an_empty_collection():
+    payload = ExportArchiveJobPayload(
+        job_id=uuid4(),
+        manifest_json='{"category_tree":[],"objects":[]}',
+        target_bucket="temp-media",
+        target_object_key="users/u/exports/empty.zip",
+        stream_chunk_size=1,
+        presigned_expire_seconds=1,
+    )
+
+    assert payload.objects == []
 
 
 def _outbox_event() -> OutboxEventPayload:
