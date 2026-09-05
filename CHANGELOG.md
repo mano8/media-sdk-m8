@@ -20,6 +20,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   backend is not pinned to an exact tag, or if a forbidden capability appears in
   the storage client. Specification only: the docker-backed harness that
   executes it lands with `T1-conformance-harness`.
+- `tests/conformance/` docker-backed harness (`T1-conformance-harness`) —
+  executes the contract against a live backend. `backends.py` boots one pinned
+  image on a throwaway docker network, publishes only the S3 port on loopback,
+  and bootstraps it with the same five buckets and the same scoped `media-rw`
+  policy JSON as the shipped `minio-init`; `probe.py` speaks raw HTTP so a
+  refusal is a status line rather than a client-side guard. `test_s3_surface.py`
+  covers `OP-01`–`OP-13` and `test_security_invariants.py` covers the live rows
+  `S4`, `S5`, `S9`–`S12`, each asserting the server's verdict: an oversized POST
+  refused by the backend with the object absent afterwards, a `Content-Type`
+  mismatch refused against the signed policy, `Content-Disposition: attachment`
+  returned verbatim, and `206 Partial Content` on a ranged GET. `S9`'s negative
+  cases carry a conforming positive control so a refusal cannot be an unrelated
+  4xx. Marked `conformance` and deselected by default (`addopts`), so the
+  ordinary run and its 100% coverage gate need no container engine;
+  `test_harness_spec.py` asserts that deselection, that every contract row this
+  step owes exists as a test, and that every image the harness runs is pinned.
+  Run with `pytest -m conformance --backend=minio`; `HARNESS.md` documents the
+  setup and what counts as proof. Tests only — no change to `media_sdk_m8`.
 
 ## [0.7.0] - 2026-08-23
 

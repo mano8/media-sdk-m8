@@ -62,4 +62,10 @@ strict = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=media_sdk_m8 --cov-report=xml --cov-report=term-missing"
+# The docker-backed conformance suite is deselected here so the ordinary run —
+# and the 100% coverage gate it carries — never needs a container engine.
+# Run it explicitly: `pytest -m conformance --backend=minio`.
+addopts = "--cov=media_sdk_m8 --cov-report=xml --cov-report=term-missing -m 'not conformance'"
+markers = [
+    "conformance: S3 conformance case run against a live pinned backend container (deselected by default; see tests/conformance/HARNESS.md)",
+]
