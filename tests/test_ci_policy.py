@@ -96,7 +96,7 @@ def test_constraints_all_pins_key_runtime_deps() -> None:
     """constraints-all.txt must pin every key runtime package from pyproject.toml."""
     content = (REPO_ROOT / "constraints-all.txt").read_text().lower()
     required = [
-        "minio==",
+        "boto3==",
         "pydantic==",
     ]
     for pin in required:

@@ -22,11 +22,11 @@ contracts (`ScanJobPayload`, `VariantSpec`, `VariantJobPayload`,
 - Do not add consuming-service business logic, database knowledge, or preset
   knowledge.
 - Ship only reusable media, storage, and client primitives. Current direct
-  dependencies are boto3/botocore, MinIO and Pydantic v2. The object-storage
-  contract is the S3 API itself, never a particular server: the client speaks
-  boto3 because that is the reference implementation every S3-compatible
-  server is tested against. The `minio` dependency is retained only until
-  `T8-sdk-release-cut` removes it.
+  dependencies are boto3/botocore and Pydantic v2. The object-storage contract
+  is the S3 API itself, never a particular server: the client speaks boto3
+  because that is the reference implementation every S3-compatible server is
+  tested against (`T8-sdk-release-cut` dropped the `minio` dependency once
+  `T6-boto3-storage-core` finished the boto3 rewrite).
 
 These are repository architecture constraints. If a requested change appears to
 break one, record the decision in the workspace context when that optional
@@ -41,7 +41,7 @@ from media_sdk_m8 import ObjectStorage, ObjectStorageConfig, ScanJobPayload
 
 storage = ObjectStorage(
     ObjectStorageConfig(
-        endpoint="minio:9000",
+        endpoint="storage:9000",
         access_key="...",
         secret_key="...",
         secure=False,

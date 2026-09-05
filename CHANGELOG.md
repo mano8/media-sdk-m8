@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.0] - 2026-09-05
 
 ### Added
 
@@ -82,8 +82,38 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   backends with the new client: MinIO 19 passed / 1 skipped, SeaweedFS 4.45
   20 passed, Garage v2.3.0 20 passed — cell for cell identical to the Wave 0
   readings (`tests/conformance/MATRIX.md`).
-- `boto3>=1.36` added as a direct dependency. `minio` stays declared for one
-  more step: `T8-sdk-release-cut` owns the dependency swap and the version bump.
+- `boto3>=1.36` added as a direct dependency. `minio` stayed declared through
+  this step so no consumer's install broke mid-rewrite.
+- **`minio` dropped as a direct dependency** (`T8-sdk-release-cut`), completing
+  the client swap `T6-boto3-storage-core` started: the package speaks only
+  boto3/botocore now. `constraints-all.txt` was regenerated with `pip-compile`
+  (not done at `T6`) — it now pins `boto3`/`botocore` and their transitive
+  closure (`s3transfer`, `jmespath`, `python-dateutil`, …) for the first time,
+  and drops `minio` and its exclusive closure (`argon2-cffi`,
+  `argon2-cffi-bindings`, `cffi`, `pycparser`, `pycryptodome`, plus `certifi`
+  once no remaining pin needed it). `get_minio_client` and
+  `ObjectStorageConfig` remain as deprecated aliases of `get_s3_client` /
+  `S3StorageConfig` — this is a dependency change, not an API break.
+- `pyproject.toml` `keywords` dropped `minio`, added `s3` and `boto3` — the
+  package indexes as provider-neutral, not MinIO-specific.
+- `README.md` and `REPOSITORY_CONTEXT.md` now describe `ObjectStorage` as a
+  provider-neutral S3 client (SigV4) built on boto3, name the two validated
+  backends (SeaweedFS 4.x default, Garage 2.x fallback — see
+  `.workspace/context/object-storage.md` in the workspace host, when present)
+  and any other S3-compatible provider including MinIO, and replace the
+  illustrative `minio:9000` example endpoint with the generic `storage:9000`.
+- `tests/test_ci_policy.py::test_constraints_all_pins_key_runtime_deps` now
+  asserts `constraints-all.txt` pins `boto3==` instead of `minio==`.
+
+### Breaking
+
+- None. Despite the dependency removal, every public symbol
+  (`ObjectStorage`, `S3StorageConfig`/`ObjectStorageConfig`, `get_s3_client`/
+  `get_minio_client`, `bucket_exists`, …) keeps its signature and return
+  shape from `0.7.0`; `T6-boto3-storage-core` already made that swap
+  byte-compatible. Minor bump under this project's 0.x SemVer reflects the
+  additive surface from `0.7.0`'s `[Unreleased]` entries (`S3StorageConfig`,
+  `bucket_exists`, `ObjectStat`/`ObjectWriteResult`), not an incompatibility.
 
 ## [0.7.0] - 2026-08-23
 
