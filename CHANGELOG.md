@@ -6,6 +6,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `tests/conformance/` — the executable object-storage conformance contract
+  (`T0-s3-surface-contract`). `CONTRACT.md` and `contract.py` are one
+  specification in two renderings: 13 surface cases (`OP-01`–`OP-13`) covering
+  every S3 operation the media stack issues, 15 security invariants
+  (`S1`–`S15`), and the list of operations the stack deliberately does not use.
+  Every row names the test id that proves it and the suite that owns that test,
+  so no invariant survives as prose only. `test_contract_spec.py` runs in the
+  ordinary suite — no docker, no backend — and fails if a row loses its proof,
+  if two rows share one, if the two renderings drift apart, if a candidate
+  backend is not pinned to an exact tag, or if a forbidden capability appears in
+  the storage client. Specification only: the docker-backed harness that
+  executes it lands with `T1-conformance-harness`.
+
 ## [0.7.0] - 2026-08-23
 
 ### Added
