@@ -1,23 +1,25 @@
 """
-S4, S5, S9, S10, S11, S12: the security invariants a live backend must prove.
+S2, S4, S5, S9, S10, S11, S12: the security invariants a live backend must prove.
 
 These are the rows the contract pins to the conformance suite because no static
 policy test can establish them — they are claims about what the *server* does
-with a request. Each case therefore reaches the backend over raw HTTP and reads
-the status line or a response header back. A client-side guard that refused
-first would make the case vacuous, which is the exact failure mode the
-migration plan exists to prevent.
+with a request. Each case therefore reaches the backend over raw HTTP (or, for
+S2, over a sibling container's raw TCP) and reads the outcome back. A
+client-side guard that refused first would make the case vacuous, which is the
+exact failure mode the migration plan exists to prevent.
 
-The remaining live row, S2 (admin surface unreachable from a sibling), is
-delivered by ``T3-run-seaweedfs``: it asserts the loopback binding that
-replaces MinIO's Traefik path exclusion, and MinIO's own admin API is reachable
-on the S3 port by design, so the baseline cannot pass it.
+S2 (admin surface unreachable from a sibling) is delivered by
+``T3-run-seaweedfs``: it asserts the loopback binding that replaces MinIO's
+Traefik path exclusion. MinIO's own admin API is reachable on the S3 port by
+design — there is no separate port to probe — so the baseline case skips
+rather than failing; :data:`backends.BackendUnderTest.admin_ports` is empty for
+that driver for exactly this reason.
 """
 
 import pytest
 
 from . import probe
-from .backends import BackendUnderTest
+from .backends import STORAGE_ALIAS, BackendUnderTest, sibling_port_reachable
 
 pytestmark = pytest.mark.conformance
 
@@ -30,6 +32,35 @@ def _absent(backend: BackendUnderTest, bucket: str, object_key: str) -> bool:
     """Return whether *object_key* is absent, as the server reports it."""
     url = backend.admin.presigned_get_object(bucket=bucket, object_key=object_key)
     return probe.request(url).status == 404
+
+
+# -- S2 ---------------------------------------------------------------------
+
+
+def test_storage_admin_surface_unreachable_from_siblings(
+    backend: BackendUnderTest,
+) -> None:
+    """
+    No master/volume/filer/webdav port answers a connection from a sibling.
+
+    Reachability is asked from a fresh container on the backend's own docker
+    network — the vantage point a compromised ``app_net`` sibling would
+    actually have — never from the host and never through the backend's own
+    client library, either of which would prove something weaker. MinIO folds
+    its admin surface into the S3 port itself, so there is nothing separate to
+    probe there; that is a documented "cannot pass" (see module docstring), not
+    a silently skipped case.
+    """
+    if not backend.admin_ports:
+        pytest.skip(
+            f"{backend.name}: the admin surface shares the S3 port by design "
+            "(plan §4.2 S2 — see this module's docstring); nothing to probe"
+        )
+    for port in backend.admin_ports:
+        assert not sibling_port_reachable(backend.network, STORAGE_ALIAS, port), (
+            f"{backend.name} port {port} answered a sibling container despite "
+            "the loopback-bind posture this row requires"
+        )
 
 
 # -- S4 ---------------------------------------------------------------------

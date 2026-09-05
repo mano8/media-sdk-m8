@@ -10,9 +10,9 @@ credentials would prove nothing about the deployed system.
 
 The image tags come from :data:`contract.CANDIDATE_BACKENDS`: an unpinned
 backend is not a measured backend, so the harness never resolves a tag of its
-own. Only the MinIO driver exists at this step; SeaweedFS and Garage are booted
-by the plan steps that measure them, and asking for one before then fails with
-a message naming that step rather than silently skipping.
+own. MinIO and SeaweedFS drivers exist as of ``T3-run-seaweedfs``; Garage is
+booted by the plan step that measures it, and asking for it before then fails
+with a message naming that step rather than silently skipping.
 """
 
 import json
@@ -20,13 +20,15 @@ import os
 import secrets
 import shutil
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Final
 
 from media_sdk_m8 import ObjectStorage, ObjectStorageConfig
@@ -42,6 +44,21 @@ DOCKER: Final = "docker"
 #: the harness bootstraps through the code path production bootstraps through.
 BOOTSTRAP_IMAGES: Final[dict[str, str]] = {
     "minio": "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z",
+    #: Sibling-reachability probe for S2 — a minimal image carrying `nc`, never
+    #: the backend under test, so a probe failure cannot be the backend's own
+    #: client library.
+    "probe": "busybox:1.37.0",
+}
+
+#: SeaweedFS components other than the S3 gateway, and the port each binds.
+#: `-ip.bind=127.0.0.1` scopes every one of these to the container's own
+#: loopback interface, so a sibling container on the same docker network must
+#: see a closed port even though it shares that network with the S3 gateway.
+SEAWEEDFS_ADMIN_PORTS: Final[dict[str, int]] = {
+    "master": 9333,
+    "volume": 8080,
+    "filer": 8888,
+    "webdav": 7333,
 }
 
 #: Network alias the backend answers to from a sibling container.
@@ -59,7 +76,6 @@ READY_TIMEOUT: Final = 120
 #: Backends the contract names that no driver boots yet, and the plan step
 #: that must add one. Asking for one of these is a usage error, not a skip.
 PENDING_DRIVERS: Final[dict[str, str]] = {
-    "seaweedfs": "T3-run-seaweedfs",
     "garage": "T4-run-garage",
 }
 
@@ -103,6 +119,13 @@ class BackendUnderTest:
     storage: ObjectStorage
     #: Client holding the root identity — bootstrap and negative control only.
     admin: ObjectStorage
+    #: Docker network the backend runs on. Empty only for a backend that never
+    #: needed a sibling-reachability probe registered against it.
+    network: str = ""
+    #: Ports S2 must prove unreachable from a sibling container. Empty means
+    #: the invariant cannot be evaluated against this backend by design (MinIO:
+    #: the admin API *is* the S3 port), which the S2 case must skip, not fail.
+    admin_ports: tuple[int, ...] = field(default_factory=tuple)
 
     @property
     def base_url(self) -> str:
@@ -185,6 +208,63 @@ def _wait_for_http(url: str, *, timeout: int = READY_TIMEOUT) -> None:
             last = str(error)
         time.sleep(0.5)
     raise RuntimeError(f"{url} did not become ready within {timeout}s: {last}")
+
+
+def _wait_for_any_response(url: str, *, timeout: int = READY_TIMEOUT) -> None:
+    """
+    Block until *url* answers at all, an auth refusal included.
+
+    Unlike :func:`_wait_for_http`, a 4xx counts as ready here: an IAM-scoped
+    S3 gateway correctly refuses an anonymous request once it is up, and that
+    refusal is itself the liveness signal — only a connection failure means
+    "not up yet".
+    """
+    deadline = time.monotonic() + timeout
+    last = "no response"
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=5):  # noqa: S310
+                return
+        except urllib.error.HTTPError:
+            return
+        except OSError as error:
+            last = str(error)
+        time.sleep(0.5)
+    raise RuntimeError(f"{url} did not become ready within {timeout}s: {last}")
+
+
+def sibling_port_reachable(
+    network: str, host: str, port: int, *, timeout: int = 5
+) -> bool:
+    """
+    Return whether *host:port* accepts a TCP connect from a fresh sibling container.
+
+    Proves S2 from the vantage point that matters — another container on the
+    same docker network, the same position a compromised ``app_net`` sibling
+    would have — never from the host, and never through the backend's own
+    client library, which would only prove the client is well-behaved.
+    """
+    result = subprocess.run(
+        [
+            DOCKER,
+            "run",
+            "--rm",
+            "--network",
+            network,
+            BOOTSTRAP_IMAGES["probe"],
+            "nc",
+            "-z",
+            "-w",
+            str(timeout),
+            host,
+            str(port),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=timeout + 30,
+    )
+    return result.returncode == 0
 
 
 @contextmanager
@@ -365,7 +445,141 @@ def _storage(endpoint: str, access_key: str, secret_key: str) -> ObjectStorage:
     )
 
 
+# -- SeaweedFS driver --------------------------------------------------------
+
+
+def _seaweedfs_iam_config(
+    buckets: MediaBuckets,
+    *,
+    admin_access_key: str,
+    admin_secret_key: str,
+    media_access_key: str,
+    media_secret_key: str,
+) -> str:
+    """
+    Return the static S3 IAM identities config ``weed server -s3.config`` boots from.
+
+    SeaweedFS has no bootstrap-time user-creation API to mirror MinIO's
+    ``mc admin user add`` — identities are declared up front in this file and
+    loaded at startup instead. The ``admin`` identity exists only to create
+    buckets and to plant the ``unlisted-media`` object S4 is denied on, the
+    same two root-only uses the MinIO driver reserves for its root identity.
+    ``media-rw`` gets ``Read``/``Write``/``List`` scoped to the five media
+    buckets and nothing else — SeaweedFS's action vocabulary has no separate
+    delete verb, so ``Write`` is where MinIO's ``s3:DeleteObject`` grant lands
+    here; that coarsening is recorded in MATRIX.md, not hidden.
+    """
+    media_actions = [
+        f"{verb}:{bucket}"
+        for bucket in buckets.as_tuple()
+        for verb in ("Read", "Write", "List")
+    ]
+    return json.dumps(
+        {
+            "identities": [
+                {
+                    "name": "admin",
+                    "credentials": [
+                        {"accessKey": admin_access_key, "secretKey": admin_secret_key}
+                    ],
+                    "actions": ["Admin", "Read", "Write", "List"],
+                },
+                {
+                    "name": "media-rw",
+                    "credentials": [
+                        {"accessKey": media_access_key, "secretKey": media_secret_key}
+                    ],
+                    "actions": media_actions,
+                },
+            ]
+        }
+    )
+
+
+@contextmanager
+def seaweedfs_backend() -> Iterator[BackendUnderTest]:
+    """
+    Boot the pinned SeaweedFS candidate with every non-S3 port loopback-bound.
+
+    ``-ip.bind=127.0.0.1`` scopes master/volume/filer to the container's own
+    loopback interface; ``-s3.ip.bind=0.0.0.0`` is what actually needs to be
+    reachable, and only that port is published to the host, and only on
+    ``127.0.0.1`` — nothing here is exposed the way MinIO's driver is not
+    either. Identities are static (``-s3.config``), so there is no separate
+    bootstrap container: the buckets are created directly through the admin
+    handle once the gateway answers.
+    """
+    image = CANDIDATE_BACKENDS["seaweedfs"]
+    buckets = MediaBuckets()
+    admin_access_key = "conformance-admin"
+    admin_secret_key = secrets.token_urlsafe(24)
+    media_access_key = "media-rw"
+    media_secret_key = secrets.token_urlsafe(24)
+    iam_config = _seaweedfs_iam_config(
+        buckets,
+        admin_access_key=admin_access_key,
+        admin_secret_key=admin_secret_key,
+        media_access_key=media_access_key,
+        media_secret_key=media_secret_key,
+    )
+    with tempfile.TemporaryDirectory(prefix="media-conformance-seaweedfs-") as tmp:
+        config_path = Path(tmp) / "s3.json"
+        config_path.write_text(iam_config, encoding="utf-8")
+        mount = f"{str(config_path).replace(chr(92), '/')}:/etc/seaweedfs/s3.json:ro"
+        with _network() as network:
+            name = f"media-conformance-storage-{uuid.uuid4().hex[:10]}"
+            run_args = [
+                "--network",
+                network,
+                "--network-alias",
+                STORAGE_ALIAS,
+                "--publish",
+                "127.0.0.1::8333",
+                "--volume",
+                mount,
+                image,
+                "server",
+                "-dir=/data",
+                "-filer",
+                "-s3",
+                # `-ip` is the address components advertise to *each other*
+                # (master<->volume<->filer heartbeats and uploads), separate
+                # from `-ip.bind`. The plan's own command names only
+                # `-ip.bind=127.0.0.1`, which leaves `-ip` at its container-IP
+                # default: the volume server then binds loopback while the
+                # filer tries to reach it on the container's routable address,
+                # and every write fails with a 500 (upload_content.go dial
+                # tcp ... connect: connection refused). Pinning `-ip` to the
+                # same loopback address is what makes bind and advertise agree
+                # — recorded in MATRIX.md as a blocker in the plan's literal
+                # command, closed by this one extra flag.
+                "-ip=localhost",
+                "-ip.bind=127.0.0.1",
+                "-s3.ip.bind=0.0.0.0",
+                "-s3.config=/etc/seaweedfs/s3.json",
+            ]
+            with _container(name, run_args, env={}) as container:
+                endpoint = _published_endpoint(container, 8333)
+                _wait_for_any_response(f"http://{endpoint}/")
+                admin = _storage(endpoint, admin_access_key, admin_secret_key)
+                for bucket in (*buckets.as_tuple(), UNLISTED_BUCKET):
+                    admin.client.make_bucket(bucket)
+                yield BackendUnderTest(
+                    name="seaweedfs",
+                    image=image,
+                    endpoint=endpoint,
+                    buckets=buckets,
+                    unlisted_bucket=UNLISTED_BUCKET,
+                    cors_origin=UI_ORIGIN,
+                    storage=_storage(endpoint, media_access_key, media_secret_key),
+                    admin=admin,
+                    network=network,
+                    admin_ports=tuple(SEAWEEDFS_ADMIN_PORTS.values()),
+                )
+
+
 #: Backend name -> driver. Extended by the step that measures each candidate.
 DRIVERS: Final[dict[str, Callable[[], AbstractContextManager[BackendUnderTest]]]] = {
     "minio": minio_backend,
+    "seaweedfs": seaweedfs_backend,
 }
