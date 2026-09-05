@@ -38,6 +38,52 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   step owes exists as a test, and that every image the harness runs is pinned.
   Run with `pytest -m conformance --backend=minio`; `HARNESS.md` documents the
   setup and what counts as proof. Tests only — no change to `media_sdk_m8`.
+- `S3StorageConfig` — the provider-neutral name for the storage connection
+  settings. `ObjectStorageConfig` remains as an alias, so consumers pinned to an
+  older SDK keep importing successfully.
+- `get_s3_client(config)` — the client factory under its new name.
+  `get_minio_client` remains as a deprecated alias delegating to it.
+- `ObjectStorage.bucket_exists(*, bucket)` — `HeadBucket` with present/absent as
+  a return value rather than an exception, which is what lets the consuming
+  service's health check report DEGRADED instead of FAIL. A `403` is re-raised:
+  a refusal is a grant problem, not an absence, and reporting it as "missing"
+  would hide a misconfigured credential behind a health warning.
+- `ObjectStat` and `ObjectWriteResult` — the explicit result shapes
+  `stat_object`, the write methods and the copy methods return, carrying the
+  same attributes (`etag` with quotes stripped, `size`, `content_type`,
+  `last_modified`, `version_id`) the previous client's objects exposed.
+- `DEFAULT_MULTIPART_THRESHOLD` / `DEFAULT_MULTIPART_CHUNK_SIZE` — the
+  single-part/multipart boundary, now stated in the SDK instead of being an
+  implicit property of the client library.
+
+### Changed
+
+- `ObjectStorage` internals reimplemented on boto3/botocore
+  (`T6-boto3-storage-core`). Every public method keeps its signature and its
+  return shape; only the library underneath changed. The reason is neutrality,
+  not maintenance: SeaweedFS and Garage are tested against boto3 and the AWS
+  CLI, so signing, POST-policy field encoding and response-header overrides go
+  over the wire the way the reference client sends them, removing a class of
+  "works on one server, subtly wrong on another" risk before the backend swap
+  in Wave 3. `presigned_post_object` uses `generate_presigned_post` with the
+  `key`, `Content-Type` and `content-length-range` conditions;
+  `presigned_get_object` uses `ResponseContentDisposition` and refuses an
+  unrecognised override rather than dropping it from the signature (a silently
+  dropped `Content-Disposition` is stored XSS); `set_object_content_type` uses
+  `MetadataDirective="REPLACE"`. Dual-endpoint presigning is unchanged: the
+  POST policy is still signed by the internal client and posted to the public
+  endpoint, and the presigned GET is still signed by a client bound to the
+  public host, because SigV4 binds Host and a POST policy does not.
+  Provider-neutral client settings are pinned rather than left at botocore's
+  AWS-shaped defaults: SigV4, path-style addressing, and checksums only
+  `when_required` — botocore otherwise sends an `x-amz-checksum-*` trailer on
+  every upload that several S3-compatible servers reject.
+  Verified by re-running the whole conformance matrix against all three pinned
+  backends with the new client: MinIO 19 passed / 1 skipped, SeaweedFS 4.45
+  20 passed, Garage v2.3.0 20 passed — cell for cell identical to the Wave 0
+  readings (`tests/conformance/MATRIX.md`).
+- `boto3>=1.36` added as a direct dependency. `minio` stays declared for one
+  more step: `T8-sdk-release-cut` owns the dependency swap and the version bump.
 
 ## [0.7.0] - 2026-08-23
 

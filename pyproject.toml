@@ -22,6 +22,11 @@ classifiers = [
 ]
 
 dependencies = [
+    # boto3/botocore is the reference S3 client every S3-compatible server is
+    # tested against; >=1.36 is the first release exposing the checksum
+    # controls the provider-neutral client pins (see storage/client.py).
+    "boto3>=1.36",
+    # Retained for one more step: T8-sdk-release-cut owns the dependency swap.
     "minio>=7.2.0",
     "pydantic>=2",
 ]

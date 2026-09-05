@@ -284,7 +284,11 @@ def test_delete_object_removes_key(backend: BackendUnderTest, object_key: str) -
     assert probe.request(url).status == 404
     with pytest.raises(Exception) as raised:
         backend.storage.stat_object(bucket=bucket, object_key=object_key)
-    assert probe.s3_error_code(raised.value) in ("NoSuchKey", "NoSuchObject")
+    # A HEAD response carries no body, so botocore reports the HTTP status
+    # where a body-carrying error would name the S3 code; both are the same
+    # verdict from the server, and the presigned GET above already read it
+    # off the wire.
+    assert probe.s3_error_code(raised.value) in ("NoSuchKey", "NoSuchObject", "404")
 
 
 # -- OP-11 ------------------------------------------------------------------
@@ -331,9 +335,9 @@ def test_head_bucket_reports_presence(backend: BackendUnderTest) -> None:
     S4 working, not a HeadBucket failure.
     """
     for bucket in backend.buckets.as_tuple():
-        assert backend.storage.client.bucket_exists(bucket) is True
+        assert backend.storage.bucket_exists(bucket=bucket) is True
 
-    assert backend.admin.client.bucket_exists("no-such-media-bucket") is False
+    assert backend.admin.bucket_exists(bucket="no-such-media-bucket") is False
 
 
 # -- OP-13 ------------------------------------------------------------------

@@ -565,7 +565,7 @@ def seaweedfs_backend() -> Iterator[BackendUnderTest]:
                 _wait_for_any_response(f"http://{endpoint}/")
                 admin = _storage(endpoint, admin_access_key, admin_secret_key)
                 for bucket in (*buckets.as_tuple(), UNLISTED_BUCKET):
-                    admin.client.make_bucket(bucket)
+                    admin.client.create_bucket(Bucket=bucket)
                 yield BackendUnderTest(
                     name="seaweedfs",
                     image=image,

@@ -9,6 +9,11 @@ each table.
 `T4-run-garage` adds the Garage column, completing every candidate
 `CANDIDATE_BACKENDS` pins.
 
+Every cell below was measured **twice**: once with the `minio-py` client
+(Wave 0) and once with the boto3/botocore client that replaced it
+(`T6-boto3-storage-core`). Both readings agree, cell for cell — see
+[Client re-measurement](#client-re-measurement).
+
 ## S3 surface (`OP-01`–`OP-13`)
 
 Every row is `Severity.BLOCKER`: a backend failing one cannot host this stack.
@@ -101,6 +106,44 @@ here: `S4`'s negative case only asserts denial on a bucket outside the grant,
 which Garage enforces exactly like MinIO and SeaweedFS. It is recorded as
 input to a future Garage bootstrap step (mirroring `T3`'s D2 for SeaweedFS),
 not as a matrix failure.
+
+## Client re-measurement
+
+`T6-boto3-storage-core` swapped the SDK's internals from `minio-py` to
+boto3/botocore while the backends stayed exactly as pinned above. Because this
+matrix is the evidence `.workspace/context/object-storage.md` cites, the whole
+matrix was re-measured with the new client rather than assumed to carry over:
+
+| Backend | `minio-py` (Wave 0) | boto3/botocore (`T6`) |
+|---|---|---|
+| MinIO `RELEASE.2025-09-07T16-13-09Z.hotfix.7aa24e772` | 19 passed, 1 skipped (`S2`) | 19 passed, 1 skipped (`S2`) |
+| SeaweedFS `4.45` | 20 passed | 20 passed |
+| Garage `v2.3.0` | 20 passed | 20 passed |
+
+No row changed verdict and no deviation above was added, removed or
+re-classified. Two client-visible differences were absorbed by the harness, and
+neither is a statement about a server:
+
+* **`OP-12` now goes through `ObjectStorage.bucket_exists`** instead of
+  reaching into `backend.storage.client` for `minio-py`'s method of the same
+  name. The SDK owns the present/absent semantics the row asserts, so the row
+  no longer depends on which library sits underneath.
+* **`OP-10`'s client-side error code.** A `HEAD` response carries no body, so
+  botocore reports `404` where a body-carrying error names the S3 code
+  (`NoSuchKey`). The assertion accepts both. The row's server-side half — the
+  presigned `GET` returning `404` off the wire — is unchanged and is what
+  actually proves the deletion.
+
+Two client-configuration choices were made to keep the wire format identical
+across backends rather than AWS-shaped; both are asserted by the SDK's unit
+suite:
+
+* `request_checksum_calculation` / `response_checksum_validation` are set to
+  `when_required`. Left at botocore's default, every upload carries an
+  `x-amz-checksum-*` trailer that several S3-compatible servers reject; the
+  stack has never depended on those trailers.
+* Path-style addressing and `signature_version="s3v4"` are pinned explicitly —
+  a self-hosted endpoint has no virtual-host DNS, and the contract is SigV4.
 
 ## Verdict
 
