@@ -8,6 +8,7 @@ what actually asks a running backend whether it does it.
 ```bash
 pytest -m conformance --backend=minio           # the baseline
 pytest -m conformance --backend=seaweedfs       # the candidate T3 measures
+pytest -m conformance --backend=garage          # the fallback T4 measures
 pytest -m conformance --backend=minio --no-cov  # same, without the coverage report
 ```
 
@@ -23,10 +24,10 @@ never sees a docker-backed case. `test_harness_spec.py` asserts that
 deselection, so it cannot be dropped by accident.
 
 `--backend` accepts the names pinned in `contract.py`'s `CANDIDATE_BACKENDS`.
-`minio` and `seaweedfs` have drivers; `garage` raises a usage error naming the
-plan step that adds one (`T4-run-garage`). That is deliberate — a backend that
-silently skipped would be indistinguishable in the matrix from one that
-passed.
+`minio`, `seaweedfs` and `garage` all have drivers as of `T4-run-garage`;
+`PENDING_DRIVERS` is empty. Asking for a name outside `CANDIDATE_BACKENDS`
+raises a usage error rather than skipping — a backend that silently skipped
+would be indistinguishable in the matrix from one that passed.
 
 The SeaweedFS driver boots `weed server -dir=/data -filer -s3
 -ip=localhost -ip.bind=127.0.0.1 -s3.ip.bind=0.0.0.0
@@ -40,6 +41,21 @@ SeaweedFS has no runtime user-creation API to mirror MinIO's
 `mc admin user add`, so there is no separate bootstrap container for this
 driver; the buckets are created directly through the admin handle once the
 gateway answers.
+
+The Garage driver mounts a single-node config (`replication_factor = 1`,
+`rpc_bind_addr`/`rpc_public_addr` both pinned to `127.0.0.1:3901`) and
+bootstraps entirely through `docker exec … /garage <subcommand>` against the
+running node — Garage has neither MinIO's one-shot `mc` container nor
+SeaweedFS's static identities file. A single-node cluster still needs an
+explicit layout before it accepts writes: `garage node id -q` for the node's
+own ID, `garage layout assign -z dc1 -c 1G <id>` then
+`garage layout apply --version 1`. Buckets are `garage bucket create`; access
+keys come from `garage key create <name>` (parsed from its human-readable
+output — Garage's CLI has no `--format json` for this subcommand) and are
+granted per bucket with `garage bucket allow --read --write [--owner] --key
+<id> <bucket>`. `docker exec` shares the container's network namespace, so the
+CLI reaches `127.0.0.1:3901` even though that port is never published and a
+sibling container cannot reach it (S2).
 
 ## What the harness sets up
 
@@ -68,9 +84,10 @@ without disclosing them.
 host or the SDK's own client can reach — either of those would prove
 something weaker. `sibling_port_reachable()` runs a fresh, pinned `busybox`
 container on the backend's own docker network and asks it to `nc -z` each of
-`backend.admin_ports`; MinIO's driver leaves that tuple empty (its admin API
-*is* the S3 port, so there is nothing separate to probe) and the case skips
-with a reason rather than asserting something MinIO cannot structurally do.
+`backend.admin_ports` — SeaweedFS's master/volume/filer/webdav, or Garage's
+single RPC port. MinIO's driver leaves that tuple empty (its admin API *is*
+the S3 port, so there is nothing separate to probe) and the case skips with a
+reason rather than asserting something MinIO cannot structurally do.
 
 The security rows — `S9`, `S10`, `S11`, `S12` — are claims about what the
 *server* does. Each is therefore observed over raw HTTP in `probe.py`: a status

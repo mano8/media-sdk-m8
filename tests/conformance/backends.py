@@ -10,13 +10,13 @@ credentials would prove nothing about the deployed system.
 
 The image tags come from :data:`contract.CANDIDATE_BACKENDS`: an unpinned
 backend is not a measured backend, so the harness never resolves a tag of its
-own. MinIO and SeaweedFS drivers exist as of ``T3-run-seaweedfs``; Garage is
-booted by the plan step that measures it, and asking for it before then fails
-with a message naming that step rather than silently skipping.
+own. MinIO, SeaweedFS and Garage drivers exist as of ``T4-run-garage`` — every
+backend the contract pins can be booted; :data:`PENDING_DRIVERS` is empty.
 """
 
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -75,9 +75,11 @@ READY_TIMEOUT: Final = 120
 
 #: Backends the contract names that no driver boots yet, and the plan step
 #: that must add one. Asking for one of these is a usage error, not a skip.
-PENDING_DRIVERS: Final[dict[str, str]] = {
-    "garage": "T4-run-garage",
-}
+#: Empty as of ``T4-run-garage`` — every candidate has a driver.
+PENDING_DRIVERS: Final[dict[str, str]] = {}
+
+#: Garage's RPC port. Never published; siblings must find it closed (S2).
+GARAGE_RPC_PORT: Final = 3901
 
 
 @dataclass(frozen=True, slots=True)
@@ -578,8 +580,161 @@ def seaweedfs_backend() -> Iterator[BackendUnderTest]:
                 )
 
 
+# -- Garage driver ------------------------------------------------------
+
+
+def _garage_config(rpc_secret: str) -> str:
+    """
+    Return the single-node Garage config the ``T4-run-garage`` container boots from.
+
+    ``replication_factor = 1`` is the single-node setting — nothing here claims
+    the durability story a real multi-node Garage cluster would have; the
+    conformance suite only measures the S3 surface and security invariants a
+    *node* enforces. ``rpc_bind_addr``/``rpc_public_addr`` are both pinned to
+    the container's own loopback interface: unlike SeaweedFS's master/volume/
+    filer, Garage has exactly one extra port (RPC, cluster gossip and the CLI's
+    admin channel) to close for S2, and closing it costs nothing here because
+    the CLI bootstrap below runs *inside* the container via ``docker exec``,
+    which shares its network namespace and can still reach ``127.0.0.1:3901``.
+    """
+    return "\n".join(
+        (
+            'metadata_dir = "/data/meta"',
+            'data_dir = "/data/data"',
+            'db_engine = "sqlite"',
+            "",
+            "replication_factor = 1",
+            "",
+            'rpc_bind_addr = "127.0.0.1:3901"',
+            'rpc_public_addr = "127.0.0.1:3901"',
+            f'rpc_secret = "{rpc_secret}"',
+            "",
+            "[s3_api]",
+            f's3_region = "{REGION}"',
+            'api_bind_addr = "0.0.0.0:3900"',
+            'root_domain = ".s3.garage.localhost"',
+        )
+    )
+
+
+def _garage_cli(container: str, *args: str) -> str:
+    """Run one ``garage`` CLI subcommand inside *container* and return stdout."""
+    return _docker("exec", container, "/garage", *args)
+
+
+def _garage_key_create(container: str, name: str) -> tuple[str, str]:
+    """Create a named Garage access key and return its ``(key_id, secret_key)``."""
+    output = _garage_cli(container, "key", "create", name)
+    key_id = re.search(r"Key ID:\s+(\S+)", output)
+    secret_key = re.search(r"Secret key:\s+(\S+)", output)
+    if not key_id or not secret_key:
+        raise RuntimeError(
+            f"garage key create {name!r} returned no credentials: {output!r}"
+        )
+    return key_id.group(1), secret_key.group(1)
+
+
+@contextmanager
+def garage_backend() -> Iterator[BackendUnderTest]:
+    """
+    Boot the pinned Garage candidate and bootstrap it through its own CLI.
+
+    Garage has no ``mc``-style bootstrap image and no static identities file
+    like SeaweedFS's ``-s3.config`` — access keys and per-bucket grants are
+    created at runtime through ``garage key create`` / ``garage bucket allow``,
+    issued here over ``docker exec`` against the running node. A single-node
+    cluster still needs an explicit layout (``garage layout assign`` +
+    ``garage layout apply``) before it will accept writes; that is Garage's
+    equivalent of MinIO's instant readiness and SeaweedFS's static config.
+
+    Garage's permission model is Read/Write/Owner per key per bucket — there is
+    no separate delete verb, so ``media-rw``'s ``--write`` grant is where
+    MinIO's ``s3:DeleteObject`` lands here, the same coarsening ``T3`` recorded
+    for SeaweedFS (D2). ``admin`` additionally gets ``--owner`` on every bucket,
+    including ``unlisted-media``, so it can plant the object S4 is denied on.
+    """
+    image = CANDIDATE_BACKENDS["garage"]
+    buckets = MediaBuckets()
+    rpc_secret = secrets.token_hex(32)
+    config = _garage_config(rpc_secret)
+    with tempfile.TemporaryDirectory(prefix="media-conformance-garage-") as tmp:
+        config_path = Path(tmp) / "garage.toml"
+        config_path.write_text(config, encoding="utf-8")
+        mount = f"{str(config_path).replace(chr(92), '/')}:/etc/garage.toml:ro"
+        with _network() as network:
+            name = f"media-conformance-storage-{uuid.uuid4().hex[:10]}"
+            run_args = [
+                "--network",
+                network,
+                "--network-alias",
+                STORAGE_ALIAS,
+                "--publish",
+                "127.0.0.1::3900",
+                "--volume",
+                mount,
+                image,
+            ]
+            with _container(name, run_args, env={}) as container:
+                endpoint = _published_endpoint(container, 3900)
+                _wait_for_any_response(f"http://{endpoint}/")
+
+                node_id = _garage_cli(container, "node", "id", "-q").split("@", 1)[0]
+                _garage_cli(
+                    container, "layout", "assign", "-z", "dc1", "-c", "1G", node_id
+                )
+                _garage_cli(container, "layout", "apply", "--version", "1")
+
+                for bucket in (*buckets.as_tuple(), UNLISTED_BUCKET):
+                    _garage_cli(container, "bucket", "create", bucket)
+
+                admin_access_key, admin_secret_key = _garage_key_create(
+                    container, "admin"
+                )
+                media_access_key, media_secret_key = _garage_key_create(
+                    container, "media-rw"
+                )
+
+                for bucket in buckets.as_tuple():
+                    _garage_cli(
+                        container,
+                        "bucket",
+                        "allow",
+                        "--read",
+                        "--write",
+                        "--key",
+                        media_access_key,
+                        bucket,
+                    )
+                for bucket in (*buckets.as_tuple(), UNLISTED_BUCKET):
+                    _garage_cli(
+                        container,
+                        "bucket",
+                        "allow",
+                        "--read",
+                        "--write",
+                        "--owner",
+                        "--key",
+                        admin_access_key,
+                        bucket,
+                    )
+
+                yield BackendUnderTest(
+                    name="garage",
+                    image=image,
+                    endpoint=endpoint,
+                    buckets=buckets,
+                    unlisted_bucket=UNLISTED_BUCKET,
+                    cors_origin=UI_ORIGIN,
+                    storage=_storage(endpoint, media_access_key, media_secret_key),
+                    admin=_storage(endpoint, admin_access_key, admin_secret_key),
+                    network=network,
+                    admin_ports=(GARAGE_RPC_PORT,),
+                )
+
+
 #: Backend name -> driver. Extended by the step that measures each candidate.
 DRIVERS: Final[dict[str, Callable[[], AbstractContextManager[BackendUnderTest]]]] = {
     "minio": minio_backend,
     "seaweedfs": seaweedfs_backend,
+    "garage": garage_backend,
 }

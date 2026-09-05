@@ -6,27 +6,28 @@ candidate. A column exists once its backend has a driver in `backends.py`; a
 not that it was skipped by omission — the reason is stated in the notes below
 each table.
 
-`T4-run-garage` adds the Garage column.
+`T4-run-garage` adds the Garage column, completing every candidate
+`CANDIDATE_BACKENDS` pins.
 
 ## S3 surface (`OP-01`–`OP-13`)
 
 Every row is `Severity.BLOCKER`: a backend failing one cannot host this stack.
 
-| Case | Operation | MinIO `RELEASE.2025-09-07T16-13-09Z.hotfix.7aa24e772` | SeaweedFS `4.45` |
-|---|---|---|---|
-| OP-01 | PostObject | ✅ pass | ✅ pass |
-| OP-02 | GetObject (presigned) | ✅ pass | ✅ pass |
-| OP-03 | GetObject (ranged) | ✅ pass | ✅ pass |
-| OP-04 | GetObject (streamed) | ✅ pass | ✅ pass |
-| OP-05 | HeadObject | ✅ pass | ✅ pass |
-| OP-06 | PutObject (bytes) | ✅ pass | ✅ pass |
-| OP-07 | PutObject (streamed) | ✅ pass | ✅ pass |
-| OP-08 | CopyObject (REPLACE) | ✅ pass | ✅ pass |
-| OP-09 | CopyObject (cross-bucket) | ✅ pass | ✅ pass |
-| OP-10 | DeleteObject | ✅ pass | ✅ pass |
-| OP-11 | ListObjectsV2 (paged, 1001 keys) | ✅ pass | ✅ pass |
-| OP-12 | HeadBucket | ✅ pass | ✅ pass |
-| OP-13 | Multipart upload | ✅ pass | ✅ pass |
+| Case | Operation | MinIO `RELEASE.2025-09-07T16-13-09Z.hotfix.7aa24e772` | SeaweedFS `4.45` | Garage `v2.3.0` |
+|---|---|---|---|---|
+| OP-01 | PostObject | ✅ pass | ✅ pass | ✅ pass |
+| OP-02 | GetObject (presigned) | ✅ pass | ✅ pass | ✅ pass |
+| OP-03 | GetObject (ranged) | ✅ pass | ✅ pass | ✅ pass |
+| OP-04 | GetObject (streamed) | ✅ pass | ✅ pass | ✅ pass |
+| OP-05 | HeadObject | ✅ pass | ✅ pass | ✅ pass |
+| OP-06 | PutObject (bytes) | ✅ pass | ✅ pass | ✅ pass |
+| OP-07 | PutObject (streamed) | ✅ pass | ✅ pass | ✅ pass |
+| OP-08 | CopyObject (REPLACE) | ✅ pass | ✅ pass | ✅ pass |
+| OP-09 | CopyObject (cross-bucket) | ✅ pass | ✅ pass | ✅ pass |
+| OP-10 | DeleteObject | ✅ pass | ✅ pass | ✅ pass |
+| OP-11 | ListObjectsV2 (paged, 1001 keys) | ✅ pass | ✅ pass | ✅ pass |
+| OP-12 | HeadBucket | ✅ pass | ✅ pass | ✅ pass |
+| OP-13 | Multipart upload | ✅ pass | ✅ pass | ✅ pass |
 
 ## Security invariants (`S2`, `S4`, `S5`, `S9`–`S12`)
 
@@ -34,15 +35,25 @@ The live rows the conformance suite can prove. `S1`, `S3`, `S6`–`S8`, `S13`–
 are static-policy rows owned by other suites (`T10`, `T18`, `T19`, `T22`) and
 are out of scope here.
 
-| Case | Invariant | MinIO | SeaweedFS |
-|---|---|---|---|
-| S2 | Admin/master/filer/webdav unreachable from a sibling | — not evaluable (see note) | ✅ pass |
-| S4 | Scoped credential denied outside its 5 buckets | ✅ pass | ✅ pass |
-| S5 | Unsigned request refused on every bucket | ✅ pass | ✅ pass |
-| S9 | `content-length-range` enforced server-side | ✅ pass | ✅ pass |
-| S10 | `Content-Type` pinned + REPLACE rewrite | ✅ pass | ✅ pass |
-| S11 | `response-content-disposition` honoured | ✅ pass | ✅ pass |
-| S12 | Ranged GET returns 206 | ✅ pass | ✅ pass |
+| Case | Invariant | MinIO | SeaweedFS | Garage |
+|---|---|---|---|---|
+| S2 | Admin/master/filer/webdav/RPC unreachable from a sibling | — not evaluable (see note) | ✅ pass | ✅ pass |
+| S4 | Scoped credential denied outside its 5 buckets | ✅ pass | ✅ pass | ✅ pass |
+| S5 | Unsigned request refused on every bucket | ✅ pass | ✅ pass | ✅ pass |
+| S9 | `content-length-range` enforced server-side | ✅ pass | ✅ pass | ✅ pass |
+| S10 | `Content-Type` pinned + REPLACE rewrite | ✅ pass | ✅ pass | ✅ pass |
+| S11 | `response-content-disposition` honoured | ✅ pass | ✅ pass | ✅ pass |
+| S12 | Ranged GET returns 206 | ✅ pass | ✅ pass | ✅ pass |
+
+**S2 / Garage — passed, one port to close instead of three.** Garage has a
+single extra listener beyond the S3 gateway: RPC (cluster gossip and the CLI's
+admin channel, port 3901). Pinning `rpc_bind_addr`/`rpc_public_addr` to
+`127.0.0.1:3901` in the mounted config closes it to siblings while the
+harness's own bootstrap — `docker exec … /garage <subcommand>` — keeps working,
+because `docker exec` shares the container's network namespace and reaches
+`127.0.0.1:3901` directly. The same fresh-`busybox`-on-the-backend's-network
+probe used for SeaweedFS's `S2` (`sibling_port_reachable()`) confirms 3901
+refused while 3900 (S3) answered.
 
 **S2 / MinIO — not evaluable, not failed.** MinIO has one port and one
 process: the S3 data path and the admin API are the same listener
@@ -80,10 +91,24 @@ floor (`response-content-disposition` only fixed in SeaweedFS ≥ 4.01) is
 already asserted statically by `test_seaweedfs_candidate_is_at_least_4_01` in
 `test_contract_spec.py`; `4.45` clears it with room.
 
+**Garage `v2.3.0`.** No deviation from the MinIO baseline was found: every
+surface row and every live invariant row this harness evaluates passed on the
+first bootstrap, including `S2` (see above). The one documented Garage
+limitation the plan's own §2.2 pre-analysis names — no distinct delete verb,
+only Read/Write/Owner per key per bucket — is real (`garage bucket allow`'s
+`--help` confirms the vocabulary) but never surfaces as a *test* deviation
+here: `S4`'s negative case only asserts denial on a bucket outside the grant,
+which Garage enforces exactly like MinIO and SeaweedFS. It is recorded as
+input to a future Garage bootstrap step (mirroring `T3`'s D2 for SeaweedFS),
+not as a matrix failure.
+
 ## Verdict
 
-SeaweedFS `4.45` passes every row this harness can evaluate against it,
-**20/20**, with zero blockers surviving to the ratified command (D1 is fixed in
-the driver, not merely noted). Nothing here contradicts §3's recommendation;
-`T4-run-garage` still runs before `T5-ratify-backend` closes the decision gate,
-per the plan's own sequencing.
+SeaweedFS `4.45` and Garage `v2.3.0` both pass every row this harness can
+evaluate against them — SeaweedFS **20/20** (D1 fixed in the driver, not
+merely noted), Garage **20/20** on the first bootstrap. Neither candidate is
+disqualified by §4.2's regression checklist; the decision in §3 therefore
+turns on the licence/patch-velocity/feature-ceiling trade the plan states, not
+on either candidate failing a technical row. `T5-ratify-backend` records that
+decision — SeaweedFS as the default, Garage as the validated fallback — in
+`.workspace/context/object-storage.md`.
