@@ -105,6 +105,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `tests/test_ci_policy.py::test_constraints_all_pins_key_runtime_deps` now
   asserts `constraints-all.txt` pins `boto3==` instead of `minio==`.
 
+### Fixed
+
+- **`set_object_content_type` docstring drift** (`T14-readme-post-policy-fix`,
+  object-storage backend migration plan, Wave 2). The docstring said upload
+  goes through a "presigned PUT", which the flow never used — it is an S3
+  **POST policy** whose signed `Content-Type` condition already pins the value
+  server-side at upload time. The docstring now describes this method
+  accurately as a narrower, post-write correction (e.g. after a server-side
+  MIME re-sniff), not the upload path's own type control. Docs-only; no
+  behaviour or signature change. Full suite 184 passed, 20 deselected, 100%
+  coverage; ruff format/check and mypy clean.
+
 ### Breaking
 
 - None. Despite the dependency removal, every public symbol

@@ -504,13 +504,16 @@ class ObjectStorage:
         """
         Rewrite an object's stored ``Content-Type`` in place.
 
-        The presigned PUT lets the client choose the ``Content-Type`` sent to
-        storage, and for public-read buckets that type is served verbatim on
-        direct access. Forcing the server-validated type here (via a metadata-
-        only server-side copy) prevents a client from having an object served
-        as an active type — e.g. ``text/html`` declared as ``text/plain`` —
-        regardless of what it sent on upload. Returns the write result so the
-        caller can pick up the authoritative post-copy etag.
+        Upload goes through a presigned S3 **POST policy**, not a bare
+        presigned PUT: the policy's ``Content-Type`` condition already pins
+        the value server-side at upload time, so storage rejects a mismatched
+        type before the object ever lands. This method exists for the
+        narrower case of correcting the stored type *after* the object is
+        already written — e.g. a server-side MIME re-sniff — via a metadata-
+        only server-side copy, so an object can never be served as an active
+        type (e.g. ``text/html`` declared as ``text/plain``) regardless of
+        what was pinned on upload. Returns the write result so the caller can
+        pick up the authoritative post-copy etag.
         """
         response = self.client.copy_object(
             Bucket=bucket,
