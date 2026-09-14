@@ -4,7 +4,33 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.8.0] - 2026-09-05
+## [1.0.0] - 2026-09-14
+
+Renumbered from the unreleased `0.8.0` heading dated 2026-09-05 (`T33-sdk-1-0-0`,
+object-storage backend migration plan, Wave 7). Nothing shipped under `0.8.0` —
+the latest published release is `0.7.0` — so the fleet's one-bump-per-unpublished-
+release rule applies and no published artefact is retracted. **Why 1.0:** the
+entry below is the neutrality cut — `ObjectStorage` reimplemented on
+boto3/botocore, `minio` dropped as a dependency, `S3StorageConfig` /
+`get_s3_client` as the provider-neutral names — and it is the API the two
+consumers (`media-service-m8` `3.0.0`, `media-worker-m8` `1.0.0`) cross the
+S3-neutral line on together. That surface is stable and is what `1.0.0`
+promises: from here, a removed or re-shaped public symbol is a major, not a 0.x
+minor. Consumers' floor becomes `>=1.0.0,<2.0.0`. The entry's text is kept as
+written on 2026-09-05; its references to "this project's 0.x SemVer" describe
+the reasoning at that date and are superseded by this preamble.
+
+### Deprecated
+
+- `ObjectStorageConfig` (alias of `S3StorageConfig`) and `get_minio_client`
+  (alias of `get_s3_client`) are **kept** in `1.0.0`. Measured on 2026-09-14
+  with `git grep` across both consumers: `media-service-m8`
+  (`media_service/storage/client.py`) still imports both and `media-worker-m8`
+  (`worker/config.py`) still imports `ObjectStorageConfig`, so dropping them
+  here would break the very consumers this cut is paired with. Both aliases
+  are scheduled for removal in **`2.0.0`**; `get_minio_client` names a retired
+  backend and consumers should move to `get_s3_client` / `S3StorageConfig`
+  before then.
 
 ### Added
 
