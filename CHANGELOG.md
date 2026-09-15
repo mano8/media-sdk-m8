@@ -4,7 +4,154 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-09-14
+
+Renumbered from the unreleased `0.8.0` heading dated 2026-09-05 (`T33-sdk-1-0-0`,
+object-storage backend migration plan, Wave 7). Nothing shipped under `0.8.0` —
+the latest published release is `0.7.0` — so the fleet's one-bump-per-unpublished-
+release rule applies and no published artefact is retracted. **Why 1.0:** the
+entry below is the neutrality cut — `ObjectStorage` reimplemented on
+boto3/botocore, `minio` dropped as a dependency, `S3StorageConfig` /
+`get_s3_client` as the provider-neutral names — and it is the API the two
+consumers (`media-service-m8` `3.0.0`, `media-worker-m8` `1.0.0`) cross the
+S3-neutral line on together. That surface is stable and is what `1.0.0`
+promises: from here, a removed or re-shaped public symbol is a major, not a 0.x
+minor. Consumers' floor becomes `>=1.0.0,<2.0.0`. The entry's text is kept as
+written on 2026-09-05; its references to "this project's 0.x SemVer" describe
+the reasoning at that date and are superseded by this preamble.
+
+### Deprecated
+
+- `ObjectStorageConfig` (alias of `S3StorageConfig`) and `get_minio_client`
+  (alias of `get_s3_client`) are **kept** in `1.0.0`. Measured on 2026-09-14
+  with `git grep` across both consumers: `media-service-m8`
+  (`media_service/storage/client.py`) still imports both and `media-worker-m8`
+  (`worker/config.py`) still imports `ObjectStorageConfig`, so dropping them
+  here would break the very consumers this cut is paired with. Both aliases
+  are scheduled for removal in **`2.0.0`**; `get_minio_client` names a retired
+  backend and consumers should move to `get_s3_client` / `S3StorageConfig`
+  before then.
+
+### Added
+
+- `tests/conformance/` — the executable object-storage conformance contract
+  (`T0-s3-surface-contract`). `CONTRACT.md` and `contract.py` are one
+  specification in two renderings: 13 surface cases (`OP-01`–`OP-13`) covering
+  every S3 operation the media stack issues, 15 security invariants
+  (`S1`–`S15`), and the list of operations the stack deliberately does not use.
+  Every row names the test id that proves it and the suite that owns that test,
+  so no invariant survives as prose only. `test_contract_spec.py` runs in the
+  ordinary suite — no docker, no backend — and fails if a row loses its proof,
+  if two rows share one, if the two renderings drift apart, if a candidate
+  backend is not pinned to an exact tag, or if a forbidden capability appears in
+  the storage client. Specification only: the docker-backed harness that
+  executes it lands with `T1-conformance-harness`.
+- `tests/conformance/` docker-backed harness (`T1-conformance-harness`) —
+  executes the contract against a live backend. `backends.py` boots one pinned
+  image on a throwaway docker network, publishes only the S3 port on loopback,
+  and bootstraps it with the same five buckets and the same scoped `media-rw`
+  policy JSON as the shipped `minio-init`; `probe.py` speaks raw HTTP so a
+  refusal is a status line rather than a client-side guard. `test_s3_surface.py`
+  covers `OP-01`–`OP-13` and `test_security_invariants.py` covers the live rows
+  `S4`, `S5`, `S9`–`S12`, each asserting the server's verdict: an oversized POST
+  refused by the backend with the object absent afterwards, a `Content-Type`
+  mismatch refused against the signed policy, `Content-Disposition: attachment`
+  returned verbatim, and `206 Partial Content` on a ranged GET. `S9`'s negative
+  cases carry a conforming positive control so a refusal cannot be an unrelated
+  4xx. Marked `conformance` and deselected by default (`addopts`), so the
+  ordinary run and its 100% coverage gate need no container engine;
+  `test_harness_spec.py` asserts that deselection, that every contract row this
+  step owes exists as a test, and that every image the harness runs is pinned.
+  Run with `pytest -m conformance --backend=minio`; `HARNESS.md` documents the
+  setup and what counts as proof. Tests only — no change to `media_sdk_m8`.
+- `S3StorageConfig` — the provider-neutral name for the storage connection
+  settings. `ObjectStorageConfig` remains as an alias, so consumers pinned to an
+  older SDK keep importing successfully.
+- `get_s3_client(config)` — the client factory under its new name.
+  `get_minio_client` remains as a deprecated alias delegating to it.
+- `ObjectStorage.bucket_exists(*, bucket)` — `HeadBucket` with present/absent as
+  a return value rather than an exception, which is what lets the consuming
+  service's health check report DEGRADED instead of FAIL. A `403` is re-raised:
+  a refusal is a grant problem, not an absence, and reporting it as "missing"
+  would hide a misconfigured credential behind a health warning.
+- `ObjectStat` and `ObjectWriteResult` — the explicit result shapes
+  `stat_object`, the write methods and the copy methods return, carrying the
+  same attributes (`etag` with quotes stripped, `size`, `content_type`,
+  `last_modified`, `version_id`) the previous client's objects exposed.
+- `DEFAULT_MULTIPART_THRESHOLD` / `DEFAULT_MULTIPART_CHUNK_SIZE` — the
+  single-part/multipart boundary, now stated in the SDK instead of being an
+  implicit property of the client library.
+
+### Changed
+
+- `ObjectStorage` internals reimplemented on boto3/botocore
+  (`T6-boto3-storage-core`). Every public method keeps its signature and its
+  return shape; only the library underneath changed. The reason is neutrality,
+  not maintenance: SeaweedFS and Garage are tested against boto3 and the AWS
+  CLI, so signing, POST-policy field encoding and response-header overrides go
+  over the wire the way the reference client sends them, removing a class of
+  "works on one server, subtly wrong on another" risk before the backend swap
+  in Wave 3. `presigned_post_object` uses `generate_presigned_post` with the
+  `key`, `Content-Type` and `content-length-range` conditions;
+  `presigned_get_object` uses `ResponseContentDisposition` and refuses an
+  unrecognised override rather than dropping it from the signature (a silently
+  dropped `Content-Disposition` is stored XSS); `set_object_content_type` uses
+  `MetadataDirective="REPLACE"`. Dual-endpoint presigning is unchanged: the
+  POST policy is still signed by the internal client and posted to the public
+  endpoint, and the presigned GET is still signed by a client bound to the
+  public host, because SigV4 binds Host and a POST policy does not.
+  Provider-neutral client settings are pinned rather than left at botocore's
+  AWS-shaped defaults: SigV4, path-style addressing, and checksums only
+  `when_required` — botocore otherwise sends an `x-amz-checksum-*` trailer on
+  every upload that several S3-compatible servers reject.
+  Verified by re-running the whole conformance matrix against all three pinned
+  backends with the new client: MinIO 19 passed / 1 skipped, SeaweedFS 4.45
+  20 passed, Garage v2.3.0 20 passed — cell for cell identical to the Wave 0
+  readings (`tests/conformance/MATRIX.md`).
+- `boto3>=1.36` added as a direct dependency. `minio` stayed declared through
+  this step so no consumer's install broke mid-rewrite.
+- **`minio` dropped as a direct dependency** (`T8-sdk-release-cut`), completing
+  the client swap `T6-boto3-storage-core` started: the package speaks only
+  boto3/botocore now. `constraints-all.txt` was regenerated with `pip-compile`
+  (not done at `T6`) — it now pins `boto3`/`botocore` and their transitive
+  closure (`s3transfer`, `jmespath`, `python-dateutil`, …) for the first time,
+  and drops `minio` and its exclusive closure (`argon2-cffi`,
+  `argon2-cffi-bindings`, `cffi`, `pycparser`, `pycryptodome`, plus `certifi`
+  once no remaining pin needed it). `get_minio_client` and
+  `ObjectStorageConfig` remain as deprecated aliases of `get_s3_client` /
+  `S3StorageConfig` — this is a dependency change, not an API break.
+- `pyproject.toml` `keywords` dropped `minio`, added `s3` and `boto3` — the
+  package indexes as provider-neutral, not MinIO-specific.
+- `README.md` and `REPOSITORY_CONTEXT.md` now describe `ObjectStorage` as a
+  provider-neutral S3 client (SigV4) built on boto3, name the two validated
+  backends (SeaweedFS 4.x default, Garage 2.x fallback — see
+  `.workspace/context/object-storage.md` in the workspace host, when present)
+  and any other S3-compatible provider including MinIO, and replace the
+  illustrative `minio:9000` example endpoint with the generic `storage:9000`.
+- `tests/test_ci_policy.py::test_constraints_all_pins_key_runtime_deps` now
+  asserts `constraints-all.txt` pins `boto3==` instead of `minio==`.
+
+### Fixed
+
+- **`set_object_content_type` docstring drift** (`T14-readme-post-policy-fix`,
+  object-storage backend migration plan, Wave 2). The docstring said upload
+  goes through a "presigned PUT", which the flow never used — it is an S3
+  **POST policy** whose signed `Content-Type` condition already pins the value
+  server-side at upload time. The docstring now describes this method
+  accurately as a narrower, post-write correction (e.g. after a server-side
+  MIME re-sniff), not the upload path's own type control. Docs-only; no
+  behaviour or signature change. Full suite 184 passed, 20 deselected, 100%
+  coverage; ruff format/check and mypy clean.
+
+### Breaking
+
+- None. Despite the dependency removal, every public symbol
+  (`ObjectStorage`, `S3StorageConfig`/`ObjectStorageConfig`, `get_s3_client`/
+  `get_minio_client`, `bucket_exists`, …) keeps its signature and return
+  shape from `0.7.0`; `T6-boto3-storage-core` already made that swap
+  byte-compatible. Minor bump under this project's 0.x SemVer reflects the
+  additive surface from `0.7.0`'s `[Unreleased]` entries (`S3StorageConfig`,
+  `bucket_exists`, `ObjectStat`/`ObjectWriteResult`), not an incompatibility.
 
 ## [0.7.0] - 2026-08-23
 

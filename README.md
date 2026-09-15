@@ -13,15 +13,21 @@ callers pass an explicit config object; the SDK never reads settings or env.
 
 ### Object storage — `media_sdk_m8.storage`
 
-`ObjectStorage` is a thin wrapper over the MinIO SDK. It is constructed from an
-explicit `ObjectStorageConfig` (endpoint, credentials, region, TLS, and the default
-presigned-URL lifetime), so it has no dependency on any service's settings module.
+`ObjectStorage` is a thin, **provider-neutral** wrapper over the Amazon S3 API
+(SigV4), built on boto3/botocore — the reference client every S3-compatible
+server is tested against. It never depends on a particular implementation: the
+validated backends are **SeaweedFS 4.x** (default reference implementation),
+**Garage 2.x** (validated fallback), and any other S3-compatible provider,
+including MinIO. It is constructed from an explicit `ObjectStorageConfig` (also
+exported as `S3StorageConfig`; endpoint, credentials, region, TLS, and the
+default presigned-URL lifetime), so it has no dependency on any service's
+settings module.
 
 ```python
 from media_sdk_m8 import ObjectStorage, ObjectStorageConfig
 
 config = ObjectStorageConfig(
-    endpoint="minio:9000",
+    endpoint="storage:9000",
     access_key="...",
     secret_key="...",
     secure=False,
@@ -58,12 +64,12 @@ overridden per call via `expires_seconds`.
 
 #### Browser-direct presigned URLs (public endpoint)
 
-When the browser cannot resolve the internal MinIO host (e.g. `minio:9000` in a
-container stack), set the two optional endpoint fields:
+When the browser cannot resolve the internal storage host (e.g. `storage:9000`
+in a container stack), set the two optional endpoint fields:
 
 ```python
 config = ObjectStorageConfig(
-    endpoint="minio:9000",  # internal — service and worker only
+    endpoint="storage:9000",  # internal — service and worker only
     access_key="...",
     secret_key="...",
     secure=False,
@@ -85,9 +91,9 @@ All internal ops (`stat_object`, `get_object`, `copy_object`, etc.) always use
 `post_upload_url` and `presigned_get_object` behave identically to before —
 compatible with proxy-through deployments and `media-worker-m8`.
 
-**Reverse-proxy requirement:** a proxy (e.g. Traefik) forwarding requests to MinIO
-must preserve the Host header (`passHostHeader: true` in Traefik, which is its
-default) so the SigV4 signature validates on arrival.
+**Reverse-proxy requirement:** a proxy (e.g. Traefik) forwarding requests to the
+storage backend must preserve the Host header (`passHostHeader: true` in
+Traefik, which is its default) so the SigV4 signature validates on arrival.
 
 ### Job contracts — `media_sdk_m8.contracts`
 
