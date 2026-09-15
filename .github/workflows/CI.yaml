@@ -70,6 +70,24 @@ jobs:
           name: bandit-security-report
           path: bandit-report.json
 
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: "pip"
+
+      # The other jobs install `.[dev]` unconstrained, so an inconsistent
+      # constraints-all.txt (e.g. pydantic bumped without its exact
+      # pydantic-core pin) stays green there. Resolving the hash-pinned lock
+      # is what proves it is installable.
+      - name: Resolve the hash-pinned lock
+        run: pip install --dry-run -r constraints-all.txt
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -94,7 +112,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.12' && github.actor != 'dependabot[bot]'
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@0b35c9ecc4f0529d0eb674914510c22f85b196b4 # v7.1.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.xml
