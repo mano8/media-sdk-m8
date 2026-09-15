@@ -130,6 +130,23 @@ the reasoning at that date and are superseded by this preamble.
   illustrative `minio:9000` example endpoint with the generic `storage:9000`.
 - `tests/test_ci_policy.py::test_constraints_all_pins_key_runtime_deps` now
   asserts `constraints-all.txt` pins `boto3==` instead of `minio==`.
+- Pre-publish dependency refresh (2026-09-15). Dependabot #22/#23/#24 merged
+  `pydantic` 2.13.4 → 2.13.5, `mypy` 2.3.0 → 2.3.1 and `packaging` 26.2 →
+  26.3; #22 was completed on its branch with `pydantic-core` 2.46.4 → 2.46.5,
+  the exact pin pydantic 2.13.5 declares, because the bump as opened left
+  `pip install -r constraints-all.txt` unresolvable. #25 (`pydantic-core`
+  2.49.0) was closed for the same reason: no pydantic release depends on it.
+  `constraints-all.txt` was then fully regenerated with the documented
+  `pip-compile` command and `--upgrade`: `boto3`/`botocore` 1.43.89 → 1.43.94,
+  `ruff` 0.16.0 → 0.16.7, `coverage` 7.15.0 → 7.16.1, `ast-serialize` 0.6.0 →
+  0.11.2, `librt` 0.13.0 → 0.15.0, `pygments` 2.20.0 → 2.21.0, `stevedore`
+  5.9.0 → 5.9.1, `typing-inspection` 0.4.2 → 0.4.4. Full gate re-run on the
+  refreshed lock: ruff format/check, mypy and bandit clean, 184 passed, 100%
+  coverage. `CI.yaml` gains a `lock` job that resolves the hash-pinned file
+  (`pip install --dry-run -r constraints-all.txt`) — the other jobs install
+  `.[dev]` unconstrained, which is why the inconsistent locks above stayed
+  green — and `codecov/codecov-action` moves v7.0.0 → v7.1.0. No runtime
+  dependency floor changed; `boto3>=1.36` and `pydantic>=2` stand.
 
 ### Fixed
 
