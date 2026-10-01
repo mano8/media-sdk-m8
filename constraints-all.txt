@@ -75,9 +75,9 @@ boto3==1.43.94 \
     --hash=sha256:2534bf331acd2f448b9cf8317f4eed453c65d9e0b7de254e77c99d390ac57aec \
     --hash=sha256:aa832d88e85035cebb83f04700c65623328b88fe828ff7ed9539483bd9d608c5
     # via media-sdk-m8 (pyproject.toml)
-botocore==1.43.94 \
-    --hash=sha256:1dfb86603a87fdaebda2540db56aef5b226ec58ab72c13ca56737e4d66dea9ab \
-    --hash=sha256:cb97cedec5fceee3261f7fff75d0b0aa2cf68b32eeb2e8c2649e4657419773a6
+botocore==1.43.103 \
+    --hash=sha256:6a6a561a6de43845ae42bc7ff7e2c798742bfa277f5215398f9c15ed9b1bd67c \
+    --hash=sha256:8c7f220e09f3b7ec99c59c716aa66cf6f5b2b57fd8731544054f3778aa744c6a
     # via
     #   boto3
     #   s3transfer
